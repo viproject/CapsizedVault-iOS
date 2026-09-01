@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to scan QR codes for wallet addresses and payment requests.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Used to unlock the app with Face ID instead of your PIN.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>PrivacyPolicyURL</key>
+	<string>https://capsized.io/privacy</string>
+	<key>GitCommit</key>
+	<string>unknown</string>
+</dict>
+</plist>

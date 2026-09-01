@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy – Capsized Vault</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+      color: #1a1a1a;
+      background: #fff;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 36px;
+      margin-bottom: 10px;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 20px;
+      margin-bottom: 6px;
+    }
+
+    p { margin-bottom: 12px; }
+
+    a { color: #2563eb; text-decoration: underline; }
+
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      background: #f3f4f6;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 14px;
+      border: 1px solid #e5e7eb;
+    }
+
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) td { background: #fafafa; }
+
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 32px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Privacy Policy</h1>
+  <p class="subtitle">CapsizedVault &mdash; Last updated: August 2026</p>
+
+  <hr>
+
+  <h2>Overview</h2>
+  <p>Capsized Vault does not collect, store, or transmit any personal data. All wallet data is stored locally on your device and never leaves it, except as described below.</p>
+
+  <hr>
+
+  <h2>What data leaves your device</h2>
+
+  <h3>Monero node connection</h3>
+  <p>To sync your wallet, the app connects to a Monero node. Your IP address is visible to the node operator. No wallet addresses, balances, or transaction data are sent to ViProject Ltd or any third party controlled by us &mdash; they are transmitted directly between your device and the node.</p>
+
+  <h3>XMR price</h3>
+  <p>The app fetches the current Monero (XMR) exchange rate from <a href="https://www.coingecko.com">CoinGecko</a> (<code>api.coingecko.com</code>). This request contains no personal data &mdash; only the coin identifier and requested fiat currencies.</p>
+
+  <h3>Version check</h3>
+  <p>On launch, the app checks <code>https://capsized.io/version.json</code> to determine whether an update is available. This request contains no personal data.</p>
+
+  <hr>
+
+  <h2>What stays on your device</h2>
+
+  <table>
+    <thead>
+      <tr><th>Data</th><th>Storage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Wallet files (encrypted)</td><td>Local app storage</td></tr>
+      <tr><td>Wallet passwords</td><td>iOS Keychain</td></tr>
+      <tr><td>PIN / biometric credentials</td><td>iOS Keychain (PIN stored as SHA-256 hash only)</td></tr>
+      <tr><td>Transaction history</td><td>Local app database</td></tr>
+      <tr><td>XMR price cache</td><td>Local app database</td></tr>
+      <tr><td>Selected nodes</td><td>Local app database</td></tr>
+    </tbody>
+  </table>
+
+  <p>None of the above is transmitted to ViProject Ltd or any analytics, advertising, or crash-reporting service. The app contains no analytics SDKs, no crash reporters, and no advertising frameworks.</p>
+
+  <hr>
+
+  <h2>Camera</h2>
+  <p>The camera is used exclusively to scan QR codes for Monero wallet addresses. Images are never stored or transmitted.</p>
+
+  <hr>
+
+  <h2>Children</h2>
+  <p>The app does not knowingly collect data from anyone, including children under 13.</p>
+
+  <hr>
+
+  <h2>Seed phrases and private keys</h2>
+  <p>Seed phrases and private keys entered into the app (e.g. during wallet restore) are processed entirely on-device to derive your wallet. They are never transmitted to ViProject Ltd or any third party.</p>
+
+  <hr>
+
+  <h2>Your rights</h2>
+  <p>Since Capsized Vault does not collect any personal data, there is nothing to access, correct, or delete on our end. If you have any privacy-related questions, please contact us at the address below.</p>
+
+  <hr>
+
+  <h2>Governing law</h2>
+  <p>This policy is governed by the laws of England and Wales. Any disputes shall be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+
+  <hr>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the updated version will be published at the same URL with a new &ldquo;Last updated&rdquo; date.</p>
+
+  <hr>
+
+  <h2>Contact</h2>
+  <p>ViProject Ltd<br>
+  <a href="mailto:info@capsized.io">info@capsized.io</a></p>
+
+</body>
+</html>

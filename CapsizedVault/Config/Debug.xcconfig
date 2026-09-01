@@ -1,0 +1,5 @@
+// Debug configuration — development builds
+PRODUCT_BUNDLE_IDENTIFIER = io.capsized.vault.dev
+INFOPLIST_KEY_CFBundleDisplayName = Capsized Dev
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
+ENABLE_USER_SCRIPT_SANDBOXING = NO
