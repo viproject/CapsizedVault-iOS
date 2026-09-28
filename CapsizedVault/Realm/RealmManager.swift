@@ -23,7 +23,7 @@ class RealmManager {
     private var _realm: Realm?
     private var _realmConfiguration: Realm.Configuration {
         var config = Realm.Configuration.defaultConfiguration
-        config.schemaVersion = 7
+        config.schemaVersion = 8
         config.migrationBlock = { migration, oldSchemaVersion in
             if oldSchemaVersion < 7 {
                 // Realm zero-fills new Int64 fields; explicitly set -1 (= "never synced")
@@ -32,6 +32,9 @@ class RealmManager {
                     newObject?["cachedTotalUnlockedPiconero"] = Int64(-1)
                 }
             }
+            // Schema 8 drops NodeData.login/password (moved to Keychain, see KeychainHelper).
+            // No known installs have saved custom node credentials yet, so nothing to carry
+            // over — Realm removes the two columns on its own.
         }
         return config
     }
@@ -249,18 +252,22 @@ class RealmManager {
         let exists = realm.objects(NodeData.self).filter("urlString == %@", urlString).first != nil
         if exists { return false }
 
+        var nodeId: String?
         do {
             try realm.write {
                 let node = NodeData()
                 node.urlString = urlString
                 node.isTrusted = isTrusted
-                node.login = login
-                node.password = password
                 node.createdAt = Date()
                 realm.add(node)
+                nodeId = node._id.stringValue
             }
         } catch {
             return false
+        }
+
+        if let nodeId {
+            KeychainHelper.saveNodeCredentials(login: login, password: password, for: nodeId)
         }
         return true
     }
@@ -273,23 +280,29 @@ class RealmManager {
             if collides { return false }
         }
 
+        var nodeId: String?
         do {
             try realm.write {
                 if let node = realm.objects(NodeData.self).filter("urlString == %@", oldURLString).first {
                     node.urlString = newURLString
                     node.isTrusted = isTrusted
-                    node.login = login
-                    node.password = password
+                    nodeId = node._id.stringValue
                 }
             }
         } catch {
             return false
+        }
+
+        if let nodeId {
+            KeychainHelper.saveNodeCredentials(login: login, password: password, for: nodeId)
         }
         return true
     }
 
     func removeCustomNode(urlString: String) -> Bool {
         guard let realm = getThreadSaveRealm() else { return false }
+
+        let nodeIds = realm.objects(NodeData.self).filter("urlString == %@", urlString).map { $0._id.stringValue }
 
         do {
             try realm.write {
@@ -298,6 +311,10 @@ class RealmManager {
             }
         } catch {
             return false
+        }
+
+        for nodeId in nodeIds {
+            KeychainHelper.deleteNodeCredentials(for: nodeId)
         }
         return true
     }

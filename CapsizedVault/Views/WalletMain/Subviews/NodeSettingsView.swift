@@ -33,8 +33,9 @@ private struct NodeSnapshot: Identifiable {
         self.id = nodeData.urlString
         self.urlString = nodeData.urlString
         self.isTrusted = nodeData.isTrusted
-        self.login = nodeData.login
-        self.password = nodeData.password
+        let credentials = nodeData.credentials
+        self.login = credentials.login
+        self.password = credentials.password
     }
 }
 

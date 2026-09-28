@@ -60,11 +60,12 @@ class WalletManager: ObservableObject {
     static func allNodes() -> [Node] {
         let customNodes = RealmManager.shared.getCustomNodes().compactMap { nodeData -> Node? in
             guard let url = URL(string: nodeData.urlString) else { return nil }
+            let credentials = nodeData.credentials
             return Node(
                 url: url,
                 isTrusted: nodeData.isTrusted,
-                login: nodeData.login.isEmpty ? nil : nodeData.login,
-                password: nodeData.password.isEmpty ? nil : nodeData.password
+                login: credentials.login.isEmpty ? nil : credentials.login,
+                password: credentials.password.isEmpty ? nil : credentials.password
             )
         }
         let defaultURLs = Set(defaultNodes.map(\.url))
