@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import Realm
 import RealmSwift
 import CapsizedMoneroKit
 import HsToolKit
@@ -30,6 +31,10 @@ struct WalletMainView: View {
 
     // Balance privacy toggle — persisted across launches; reset on foreground when amountHidden is on
     @AppStorage("balanceVisible") private var balanceVisible = false
+
+    // Mirrors NodeSettingsView's "Choose node automatically" toggle — when off, the wallet is
+    // pinned to one node and cannot fail over, so connection errors need a route to node settings.
+    @AppStorage("nodeAutoSelect") private var nodeAutoSelect = true
 
     // Native sheet / full-screen cover flow state
     @State private var showingAddWallet = false
@@ -200,11 +205,8 @@ struct WalletMainView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
         }
-        .sheet(isPresented: $showingNodeSettings) {
+        .fullScreenCover(isPresented: $showingNodeSettings) {
             NodeSettingsView()
-                .presentationDetents([.fraction(0.86)])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(28)
         }
         .sheet(isPresented: $showingReceiveXMR) {
             ReceiveXMRView()
@@ -662,7 +664,10 @@ struct WalletMainView: View {
                     detail: detail,
                     fg: Color.dsDanger,
                     bg: Color.dsDangerSoft,
-                    action: { wallet.restartSync() }
+                    action: { wallet.restartSync() },
+                    nodeSettingsAction: (!nodeAutoSelect && error != .notStarted)
+                        ? { showingNodeSettings = true }
+                        : nil
                 )
             case .idle:
                 syncCardContent(
@@ -677,35 +682,53 @@ struct WalletMainView: View {
     }
 
     @ViewBuilder
-    private func syncCardContent(icon: String, label: String, detail: String?, fg: Color, bg: Color, action: (() -> Void)? = nil) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
-                .foregroundStyle(fg)
-                .frame(width: 24)
+    private func syncCardContent(icon: String, label: String, detail: String?, fg: Color, bg: Color, action: (() -> Void)? = nil, nodeSettingsAction: (() -> Void)? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundStyle(fg)
+                    .frame(width: 24)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.dsBodyMD)
-                    .foregroundStyle(Color.dsTextPrimary)
-                if let detail {
-                    Text(detail)
-                        .font(.dsCaption)
-                        .foregroundStyle(Color.dsTextSecondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label)
+                        .font(.dsBodyMD)
+                        .foregroundStyle(Color.dsTextPrimary)
+                    if let detail {
+                        Text(detail)
+                            .font(.dsCaption)
+                            .foregroundStyle(Color.dsTextSecondary)
+                    }
+                }
+
+                Spacer()
+
+                if let action {
+                    Button(action: action) {
+                        Text("Restart")
+                            .font(.dsCaption)
+                            .foregroundStyle(fg)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(fg.opacity(0.15))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
-            Spacer()
-
-            if let action {
-                Button(action: action) {
-                    Text("Restart")
-                        .font(.dsCaption)
-                        .foregroundStyle(fg)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(fg.opacity(0.15))
-                        .clipShape(Capsule())
+            if let nodeSettingsAction {
+                Button(action: nodeSettingsAction) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "server.rack")
+                        Text("Node Settings")
+                    }
+                    .font(.dsCaption)
+                    .foregroundStyle(fg)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(fg.opacity(0.15))
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }

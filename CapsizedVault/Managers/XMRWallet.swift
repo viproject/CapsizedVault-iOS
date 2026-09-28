@@ -54,6 +54,10 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
     @Published var pendingSeedBackup: Bool = false
     @Published var walletError: String?
     @Published var activeNodeURL: String = ""
+    @Published var nodeSwitchError: String?
+    /// URL of the node a switch is currently in flight for, so the UI can show a
+    /// pending/spinner state instead of appearing frozen during the reconnect.
+    @Published var pendingNodeURL: String?
 
     @Published var title: String = ""
     var walletId: String = ""
@@ -124,12 +128,54 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
         }
     }
     
-    var nodePool: NodePool? {
-        moneroKit?.nodePool
+    /// Runs a manual node-latency test and reports each result as it arrives. Results are
+    /// isolated from the periodic background probe and the sync heartbeat (see
+    /// `NodePool.onManualProbeResult`). Returns the current node list so the caller can seed
+    /// its display state before results start coming in.
+    @discardableResult
+    func testAllNodes(onResult: @escaping (Node, NodeMetrics) -> Void) -> [Node] {
+        guard let pool = moneroKit?.nodePool else { return [] }
+        pool.onManualProbeResult = onResult
+        pool.probeAllNodesSequentially()
+        return pool.nodes
+    }
+
+    func selectNode(urlString: String) {
+        guard let url = URL(string: urlString),
+              let pool = moneroKit?.nodePool,
+              let node = pool.nodes.first(where: { $0.url == url }) else { return }
+        nodeSwitchError = nil
+        pendingNodeURL = urlString
+        moneroKit?.switchToNode(node) { [weak self] result in
+            self?.pendingNodeURL = nil
+            if case .failure = result {
+                self?.nodeSwitchError = "Could not connect to \(urlString)"
+            }
+        }
+    }
+
+    /// Re-reads the persisted node list (defaults + custom) into the live node pool.
+    /// Call after any custom node is added, edited, or removed so the change takes
+    /// effect immediately instead of only on the next wallet reconnect.
+    func syncNodePool() {
+        moneroKit?.nodePool.autoSelectableURLs = Set(WalletManager.defaultNodes.map(\.url))
+        moneroKit?.nodePool.updateNodes(WalletManager.allNodes())
+    }
+
+    /// Best-scoring node currently eligible for automatic selection (i.e. a default node) —
+    /// used to pick a node when the user re-enables auto-select while pinned to a custom one.
+    func bestAutoSelectableNodeURL() -> String? {
+        moneroKit?.nodePool.bestNode().url.absoluteString
     }
 
     func probeAllNodes() {
         moneroKit?.nodePool.probeAllNodes()
+    }
+
+    /// Called when the user toggles "Choose node automatically" so auto-failover
+    /// immediately stops (or resumes) moving the wallet off its current node.
+    func setAutoNodeSelectionEnabled(_ enabled: Bool) {
+        moneroKit?.isAutoNodeSelectionEnabled = enabled
     }
 
     private var moneroKit: Kit?
@@ -257,9 +303,18 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
         lastRestoreHeight = restoreHeight
         lastIsNewWallet = isNewWallet
 
-        let nodes = WalletManager.allNodes()
-
+        var nodes = WalletManager.allNodes()
         guard !nodes.isEmpty else { return }
+
+        // NodePool.init always makes nodes[0] the active node, so putting the user's
+        // pinned node first is what makes the pin actually take effect on (re)connect.
+        let autoSelect = UserDefaults.standard.object(forKey: "nodeAutoSelect") as? Bool ?? true
+        if !autoSelect {
+            let pinnedURLString = UserDefaults.standard.string(forKey: "nodePinnedURL") ?? ""
+            if let index = nodes.firstIndex(where: { $0.url.absoluteString == pinnedURLString }) {
+                nodes.insert(nodes.remove(at: index), at: 0)
+            }
+        }
 
         let height = restoreHeight ?? UInt64(RestoreHeight.getHeight(date: Date()))
         let walletPassword = resolveWalletPassword()
@@ -270,6 +325,19 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
         #endif
 
         do {
+//            let kit = try Kit(
+//                wallet: moneroWallet,
+//                restoreHeight: height,
+//                walletId: walletId,
+//                walletPassword: walletPassword,
+//                nodes: nodes,
+//                networkType: .mainnet,
+//                isNewWallet: isNewWallet,
+//                reachabilityManager: ReachabilityManager(),
+//                logger: nil,
+//                moneroCoreLogLevel: coreLogLevel
+//            )
+            
             let kit = try Kit(
                 wallet: moneroWallet,
                 restoreHeight: height,
@@ -280,10 +348,13 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
                 isNewWallet: isNewWallet,
                 reachabilityManager: ReachabilityManager(),
                 logger: nil,
-                moneroCoreLogLevel: coreLogLevel
-            )
+                moneroCoreLogLevel: coreLogLevel,
+                nodeRotationMode: .adaptive)
+              
 
             kit.delegate = self
+            kit.isAutoNodeSelectionEnabled = autoSelect
+            kit.nodePool.autoSelectableURLs = Set(WalletManager.defaultNodes.map(\.url))
             kit.preloadCachedData()
             moneroKit = kit
             isConnected = true
@@ -296,7 +367,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             walletError = "Failed to initialize wallet: \(error.localizedDescription)"
         }
     }
-    
+
     private func stateDescription(_ state: WalletState) -> String {
         switch state {
         case .connecting (let waiting): return "Connecting\(waiting ? "" : "...")"

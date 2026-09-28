@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Realm
 import RealmSwift
 
 enum CoinId: String, CaseIterable {

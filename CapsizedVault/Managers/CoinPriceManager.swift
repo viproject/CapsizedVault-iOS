@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import UIKit
 import OSLog
+import Realm
 import RealmSwift
 
 class CoinPriceManager: ObservableObject {

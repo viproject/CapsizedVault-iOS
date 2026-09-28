@@ -204,7 +204,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\nGIT_HASH=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo \"unknown\")\nif [ -n \"$PROCESSED_INFOPLIST_FILE\" ] && [ -f \"$PROCESSED_INFOPLIST_FILE\" ]; then\n    /usr/libexec/PlistBuddy -c \"Add :GitCommit string $GIT_HASH\" \"$PROCESSED_INFOPLIST_FILE\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Set :GitCommit $GIT_HASH\" \"$PROCESSED_INFOPLIST_FILE\"\n\n    if [ \"$ACTION\" = \"archive\" ]; then\n        BUILD_NUMBER=$(git -C \"$SRCROOT\" rev-list --count HEAD)\n        /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"$PROCESSED_INFOPLIST_FILE\"\n    fi\nfi\n";
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\nGIT_HASH=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo \"unknown\")\n\n# PROCESSED_INFOPLIST_FILE is empty during archive builds; fall back to BUILT_PRODUCTS_DIR\nPLIST_PATH=\"${PROCESSED_INFOPLIST_FILE:-$BUILT_PRODUCTS_DIR/$INFOPLIST_PATH}\"\n\nif [ -f \"$PLIST_PATH\" ]; then\n    /usr/libexec/PlistBuddy -c \"Add :GitCommit string $GIT_HASH\" \"$PLIST_PATH\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Set :GitCommit $GIT_HASH\" \"$PLIST_PATH\"\n    if [ \"$ACTION\" = \"install\" ]; then\n        BUILD_NUMBER=$(git -C \"$SRCROOT\" rev-list --count HEAD)\n        /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"$PLIST_PATH\"\n    fi\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -343,7 +343,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = N82L7Z8JJ9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -351,7 +351,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required to scan QR codes";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Capsized Vault uses Face ID to quickly unlock the app.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -398,7 +397,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = N82L7Z8JJ9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -406,7 +405,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required to scan QR codes";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Capsized Vault uses Face ID to quickly unlock the app.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -506,7 +504,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 14;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = N82L7Z8JJ9;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -514,7 +512,6 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera is required to scan QR codes";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Capsized Vault uses Face ID to quickly unlock the app.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

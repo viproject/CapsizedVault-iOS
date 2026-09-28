@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Realm
 import RealmSwift
 import OSLog
 
@@ -257,6 +258,29 @@ class RealmManager {
                 node.password = password
                 node.createdAt = Date()
                 realm.add(node)
+            }
+        } catch {
+            return false
+        }
+        return true
+    }
+
+    func updateCustomNode(oldURLString: String, newURLString: String, isTrusted: Bool, login: String, password: String) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+
+        if newURLString != oldURLString {
+            let collides = realm.objects(NodeData.self).filter("urlString == %@", newURLString).first != nil
+            if collides { return false }
+        }
+
+        do {
+            try realm.write {
+                if let node = realm.objects(NodeData.self).filter("urlString == %@", oldURLString).first {
+                    node.urlString = newURLString
+                    node.isTrusted = isTrusted
+                    node.login = login
+                    node.password = password
+                }
             }
         } catch {
             return false

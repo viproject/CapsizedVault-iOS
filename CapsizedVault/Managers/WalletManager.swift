@@ -71,7 +71,26 @@ class WalletManager: ObservableObject {
         let uniqueCustom = customNodes.filter { !defaultURLs.contains($0.url) }
         return defaultNodes + uniqueCustom
     }
-    
+
+    static func getCustomNodes() -> [NodeData] {
+        RealmManager.shared.getCustomNodes()
+    }
+
+    @discardableResult
+    static func addCustomNode(urlString: String, isTrusted: Bool, login: String, password: String) -> Bool {
+        RealmManager.shared.addCustomNode(urlString: urlString, isTrusted: isTrusted, login: login, password: password)
+    }
+
+    @discardableResult
+    static func updateCustomNode(oldURLString: String, newURLString: String, isTrusted: Bool, login: String, password: String) -> Bool {
+        RealmManager.shared.updateCustomNode(oldURLString: oldURLString, newURLString: newURLString, isTrusted: isTrusted, login: login, password: password)
+    }
+
+    @discardableResult
+    static func removeCustomNode(urlString: String) -> Bool {
+        RealmManager.shared.removeCustomNode(urlString: urlString)
+    }
+
     func setActiveWallet(_ wallet: XMRWallet) {
         guard wallets.contains(wallet) else {
             return
