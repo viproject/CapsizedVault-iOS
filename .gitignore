@@ -25,3 +25,6 @@ DerivedData/
 .build/
 Modules/CapsizedMoneroKit.Swift/Monero.xcframework
 Modules/CapsizedMoneroKit.Swift/Monero.xcframework.zip
+
+# Claude Code
+CLAUDE.md
