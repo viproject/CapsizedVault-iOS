@@ -12,6 +12,9 @@ A self-custodial Monero wallet for iOS. No accounts, no servers, no tracking —
 - **Transaction history** — with amounts, timestamps, and confirmation status
 - **PIN + Face ID / Touch ID** — local authentication, no cloud backup of credentials
 - **XMR price** — live conversion via CoinGecko (no API key required)
+- **Node management** — built-in default nodes with automatic selection and adaptive failover, or add your own node (with optional RPC login) and pin the wallet to it
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Requirements
 
@@ -47,7 +50,7 @@ Then select the **CapsizedVault** scheme and build (⌘B).
 
 Each App Store release corresponds to a tagged commit in this repository. A GitHub Actions workflow builds the app from source on every push to `main`, every pull request, and every release tag — you can view the build logs in the [Actions tab](../../actions).
 
-Full byte-for-byte reproducible builds are not possible on iOS because Apple's code signing modifies the final binary. The app displays its version and git commit hash in **Settings → (bottom of sheet)**, e.g. `v1.0.0 (a3f9c12)`, so you can inspect the exact source that was compiled directly in this repository.
+Full byte-for-byte reproducible builds are not possible on iOS because Apple's code signing modifies the final binary. The app displays its version and git commit hash in **Settings → (bottom of sheet)**, e.g. `v1.1.0 (a3f9c12)`, so you can inspect the exact source that was compiled directly in this repository.
 
 Each release includes a `CapsizedVault.dSYM.zip` attached to the [GitHub Release](../../releases). Apple does not modify the compiled code (`__TEXT` segment) when re-signing for the App Store, so the dSYM produced from a given source tag deterministically matches the App Store binary. To verify:
 
@@ -71,11 +74,12 @@ Each release includes a `CapsizedVault.dSYM.zip` attached to the [GitHub Release
 | File | Responsibility |
 |------|---------------|
 | `WalletManager.swift` | Wallet lifecycle — create, load, switch, remove |
-| `XMRWallet.swift` | Wraps `CapsizedMoneroKit.Kit`; bridges delegate events to app state |
+| `XMRWallet.swift` | Wraps `CapsizedMoneroKit.Kit`; bridges delegate events to app state; node selection and switching |
 | `AuthManager.swift` | PIN and biometric lock/unlock, background privacy overlay |
-| `KeychainHelper.swift` | Stores wallet passwords and PIN hash |
+| `KeychainHelper.swift` | Stores wallet passwords, PIN hash, and custom node RPC credentials |
 | `CoinPriceManager.swift` | Polls CoinGecko for XMR/fiat price |
 | `AppUpdateManager.swift` | Checks `capsized.io/version.json` for available updates |
+| `RealmManager.swift` | Wallet metadata, cached balances, custom node list |
 
 ## Configuration
 
@@ -92,6 +96,7 @@ The privacy policy URL (`PrivacyPolicyURL` in `Info.plist`) is set as a literal 
 CapsizedVault collects no personal data. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md) for the full policy.
 
 - Wallet credentials are stored in the iOS Keychain only — never transmitted
+- Custom node login/password are stored in the iOS Keychain only
 - The camera is used exclusively for QR scanning; images are never stored or sent
 - Your IP address is visible to the Monero node you connect to
 - XMR price is fetched anonymously from CoinGecko
