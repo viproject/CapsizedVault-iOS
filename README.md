@@ -54,10 +54,24 @@ Full byte-for-byte reproducible builds are not possible on iOS because Apple's c
 
 Each release includes a `CapsizedVault.dSYM.zip` attached to the [GitHub Release](../../releases). Apple does not modify the compiled code (`__TEXT` segment) when re-signing for the App Store, so the dSYM produced from a given source tag deterministically matches the App Store binary. To verify:
 
-1. Note the commit hash shown in the app's Settings sheet
-2. Download `CapsizedVault.dSYM.zip` from the matching [GitHub Release](../../releases)
-3. Download the App Store IPA using [iMazing](https://imazing.com) or Apple Configurator
-4. Run `dwarfdump --uuid CapsizedVault.app.dSYM` and compare against `dwarfdump --uuid <path-to-app-binary>` extracted from the IPA — a matching UUID confirms the binary was compiled from that commit
+1. **Note the commit hash** shown at the bottom of the app's Settings sheet, e.g. `v1.1.0 (a3f9c12)`.
+2. **Download the dSYM.** Get `CapsizedVault.dSYM.zip` from the matching [GitHub Release](../../releases) and unzip it:
+   ```sh
+   unzip CapsizedVault.dSYM.zip -d dsym
+   ```
+   The zip preserves the build's directory layout, so the dSYM ends up at `dsym/build/CapsizedVault.xcarchive/dSYMs/CapsizedVault.app.dSYM`. Finder shows `CapsizedVault.xcarchive` as a single package — right-click it and choose **Show Package Contents** if you'd rather browse it there instead of in Terminal.
+3. **Download the App Store IPA** of the same version with [iMazing](https://imazing.com) (Manage Apps → Library → select the app → Export .IPA) or with Apple Configurator (start adding the app to a connected device and copy the `.ipa` out of its `MobileApps` cache folder before the install finishes).
+4. **Extract the app binary from the IPA.** An `.ipa` is a plain zip archive:
+   ```sh
+   unzip CapsizedVault.ipa -d ipa
+   ```
+   The executable is the Mach-O file with the same name as the app, inside the `.app` bundle: `ipa/Payload/CapsizedVault.app/CapsizedVault`. That's the file to check — not the `.app` folder or the `.ipa` itself.
+5. **Compare UUIDs:**
+   ```sh
+   dwarfdump --uuid dsym/build/CapsizedVault.xcarchive/dSYMs/CapsizedVault.app.dSYM
+   dwarfdump --uuid ipa/Payload/CapsizedVault.app/CapsizedVault
+   ```
+   Each command prints a line like `UUID: 1A2B3C4D-... (arm64) <path>`. If the `arm64` UUIDs match, the App Store binary was compiled from that commit. The App Store binary is FairPlay-encrypted, but its `LC_UUID` load command isn't part of the encrypted region, so `dwarfdump` can still read it.
 
 ## Architecture
 
