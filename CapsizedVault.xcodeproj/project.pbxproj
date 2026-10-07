@@ -351,6 +351,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
@@ -406,6 +407,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
@@ -514,6 +516,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
