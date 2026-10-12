@@ -4,6 +4,18 @@ All notable changes to CapsizedVault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [1.2]
+
+### Added
+- **View-only wallets**: restore a wallet from its primary address and private view key. View-only wallets show incoming transactions and balance but can't send. They're marked with a "View-only" badge in the wallet header and wallet switcher.
+
+### Changed
+- The onboarding restore button now says **Restore wallet** (it was "I have a seed phrase"), since a wallet can be restored from a seed, keys, or a view key.
+- For view-only wallets, Backup shows only the address and keys (no private spend key), and Remove Wallet reminds you to keep the address and view key instead of a seed phrase.
+
+### Fixed
+- Updated CapsizedMoneroKit to 1.1.1: restoring a view-only wallet now sets up background handling and adaptive node failover in the same way as other wallets.
+
 ## [1.1]
 
 ### Added
@@ -29,5 +41,6 @@ and this project follows [Semantic Versioning](https://semver.org/).
 - PIN and Face ID / Touch ID lock
 - Live XMR price via CoinGecko
 
+[1.2]: https://github.com/viproject/CapsizedVault-iOS/compare/v1.1...v1.2
 [1.1]: https://github.com/viproject/CapsizedVault-iOS/compare/v1.0...v1.1
 [1.0]: https://github.com/viproject/CapsizedVault-iOS/releases/tag/v1.0

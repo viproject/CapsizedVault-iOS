@@ -5,7 +5,7 @@ A self-custodial Monero wallet for iOS. No accounts, no servers, no tracking —
 ## Features
 
 - **Create wallets** — generate a new 16-word Polyseed or 25-word legacy Monero seed
-- **Restore wallets** — import from Polyseed, legacy seed, or spend/view keys
+- **Restore wallets** — import from Polyseed, legacy seed, or spend/view keys, or add a view-only wallet from an address and view key
 - **Multiple wallets** — manage several wallets in one app
 - **Accounts** — use Monero's built-in account system for separating funds
 - **Send & receive** — QR code scanning for addresses, subaddress generation for privacy
