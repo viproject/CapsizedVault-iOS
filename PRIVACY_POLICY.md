@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **CapsizedVault**  
-Last updated: August 2026
+Last updated: October 2026
 
 ---
 
@@ -54,6 +54,14 @@ The app does not knowingly collect data from anyone, including children under 13
 ## Seed phrases and private keys
 
 Seed phrases and private keys entered into the app (e.g. during wallet restore) are processed entirely on-device to derive your wallet. They are never transmitted to ViProject Ltd or any third party.
+
+---
+
+## Website
+
+This website (`capsized.io`) uses [GoatCounter](https://www.goatcounter.com) to count page views. It sets no cookies and does not track you across sites. For each visit it records the page, referrer, browser, screen size, and country (derived from your IP address); your IP address itself is not stored.
+
+Fonts, icons, and scripts are served from `capsized.io` itself. No other third-party services are loaded.
 
 ---
 
