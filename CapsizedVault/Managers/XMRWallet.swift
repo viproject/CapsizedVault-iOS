@@ -52,6 +52,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
     /// -1 until the wallet has synced at least once.
     @Published var cachedTotalUnlocked: Int64 = -1
     @Published var pendingSeedBackup: Bool = false
+    @Published private(set) var isWatchOnly: Bool = false
     @Published var walletError: String?
     @Published var activeNodeURL: String = ""
     @Published var nodeSwitchError: String?
@@ -358,9 +359,10 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             kit.preloadCachedData()
             moneroKit = kit
             isConnected = true
+            isWatchOnly = kit.isWatchOnly
             activeNodeURL = kit.activeNodeDescription
         } catch MoneroCoreError.walletFilesMissing {
-            walletError = "Wallet files are missing or corrupted. Please restore the wallet from seed or keys."
+            walletError = "Wallet files are missing or corrupted. Please restore the wallet from seed, keys, or a view key."
         } catch MoneroCoreError.walletRecoveryFailed(let message) {
             walletError = "Wallet recovery failed: \(message)"
         } catch {

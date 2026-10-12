@@ -129,6 +129,7 @@ class AddWalletViewModel: ObservableObject {
     class AWRestoreMoneroWallet {
         var title: String? = nil
         var isFromSeed = true
+        var isWatchOnly = false
         var seed: String? = nil
         var passphrase = ""
         var publicAddress: String? = nil

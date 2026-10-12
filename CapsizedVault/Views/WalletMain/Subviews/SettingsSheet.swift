@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    var isWatchOnly: Bool = false
     let onSecurity: () -> Void
     let onNodes: () -> Void
     let onBackup: () -> Void

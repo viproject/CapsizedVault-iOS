@@ -13,6 +13,7 @@ struct AWRestoreMonero1SeedKeys: View {
     enum RestoreMethod: String, CaseIterable {
         case seed = "Seed Phrase"
         case keys = "Keys"
+        case viewOnly = "View-only"
     }
     
     @Binding var isPresented: Bool
@@ -48,13 +49,17 @@ struct AWRestoreMonero1SeedKeys: View {
                         tabSwitcher
                             .padding(.top, 4)
                         
-                        if selectedMethod == .seed {
-                            seedPhraseTab
-                                .padding(.top, 24)
-                        } else {
-                            keysTab
-                                .padding(.top, 24)
+                        Group {
+                            switch selectedMethod {
+                            case .seed:
+                                seedPhraseTab
+                            case .keys:
+                                keysTab
+                            case .viewOnly:
+                                viewOnlyTab
+                            }
                         }
+                        .padding(.top, 24)
                         
                         if selectedMethod == .seed {
                             Text("You can add your passphrase on the next screen")
@@ -86,7 +91,7 @@ struct AWRestoreMonero1SeedKeys: View {
                 selectedMethod = .seed
                 seedPhrase = data.seed ?? ""
             } else if data.publicAddress != nil {
-                selectedMethod = .keys
+                selectedMethod = data.isWatchOnly ? .viewOnly : .keys
                 primaryAddress = data.publicAddress ?? ""
                 viewKey = data.viewKey ?? ""
                 spendKey = data.spendKey ?? ""
@@ -324,6 +329,33 @@ struct AWRestoreMonero1SeedKeys: View {
         }
     }
     
+    // MARK: - View-only Tab
+
+    private var viewOnlyTab: some View {
+        VStack(spacing: 20) {
+            keyFieldSection(
+                label: "Primary Address",
+                placeholder: "4…",
+                text: $primaryAddress,
+                focus: .primaryAddress,
+                hint: addressValidationError ?? "Primary address (starts with 4), not a subaddress",
+                isError: addressValidationError != nil
+            )
+            keyFieldSection(
+                label: "Private View Key",
+                placeholder: "Enter private view key",
+                text: $viewKey,
+                focus: .viewKey,
+                hint: viewKeyValidationError ?? "64-character hexadecimal key",
+                isError: viewKeyValidationError != nil
+            )
+
+            Text("View-only wallets can't spend and may not show outgoing transactions.")
+                .font(.dsBodySM)
+                .foregroundColor(.dsTextTertiary)
+        }
+    }
+
     private func keyFieldSection(
         label: String,
         placeholder: String,
@@ -412,7 +444,7 @@ struct AWRestoreMonero1SeedKeys: View {
     }
 
     private var addressValidationError: String? {
-        guard selectedMethod == .keys, !trimmedPrimaryAddress.isEmpty else { return nil }
+        guard selectedMethod == .keys || selectedMethod == .viewOnly, !trimmedPrimaryAddress.isEmpty else { return nil }
         guard Kit.isValid(address: trimmedPrimaryAddress, networkType: .mainnet) else {
             return "Enter a valid Monero mainnet primary address"
         }
@@ -432,7 +464,7 @@ struct AWRestoreMonero1SeedKeys: View {
     }
 
     private func keyValidationError(for key: String, label: String, isViewKey: Bool) -> String? {
-        guard selectedMethod == .keys, !key.isEmpty else { return nil }
+        guard selectedMethod == .keys || selectedMethod == .viewOnly, !key.isEmpty else { return nil }
         guard addressValidationError == nil, !trimmedPrimaryAddress.isEmpty else { return nil }
 
         if let wallet2Error = Kit.keyValidationError(key: key, address: trimmedPrimaryAddress, isViewKey: isViewKey, networkType: .mainnet) {
@@ -444,30 +476,47 @@ struct AWRestoreMonero1SeedKeys: View {
     // MARK: - Form Validation
 
     private var isFormValid: Bool {
-        if selectedMethod == .seed {
+        switch selectedMethod {
+        case .seed:
             let wordCount = seedPhrase.components(separatedBy: CharacterSet(charactersIn: " \u{3000}")).filter { !$0.isEmpty }.count
             return wordCount == 16 || wordCount == 25
-        } else {
+        case .keys:
             return !trimmedPrimaryAddress.isEmpty &&
                    !trimmedViewKey.isEmpty &&
                    !trimmedSpendKey.isEmpty &&
                    keysValidationError == nil
+        case .viewOnly:
+            return !trimmedPrimaryAddress.isEmpty &&
+                   !trimmedViewKey.isEmpty &&
+                   addressValidationError == nil &&
+                   viewKeyValidationError == nil
         }
     }
     
     // MARK: - Restore Function
 
     private func buttonNextAction() {
-        if selectedMethod == .seed {
+        switch selectedMethod {
+        case .seed:
             walletVM.restoreMoneroWalletData.isFromSeed = true
+            walletVM.restoreMoneroWalletData.isWatchOnly = false
             walletVM.restoreMoneroWalletData.seed = seedPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
+        case .keys:
             guard keysValidationError == nil else { return }
 
             walletVM.restoreMoneroWalletData.isFromSeed = false
+            walletVM.restoreMoneroWalletData.isWatchOnly = false
             walletVM.restoreMoneroWalletData.publicAddress = trimmedPrimaryAddress
             walletVM.restoreMoneroWalletData.viewKey = trimmedViewKey
             walletVM.restoreMoneroWalletData.spendKey = trimmedSpendKey
+        case .viewOnly:
+            guard addressValidationError == nil, viewKeyValidationError == nil else { return }
+
+            walletVM.restoreMoneroWalletData.isFromSeed = false
+            walletVM.restoreMoneroWalletData.isWatchOnly = true
+            walletVM.restoreMoneroWalletData.publicAddress = trimmedPrimaryAddress
+            walletVM.restoreMoneroWalletData.viewKey = trimmedViewKey
+            walletVM.restoreMoneroWalletData.spendKey = nil
         }
         nextAction()
     }

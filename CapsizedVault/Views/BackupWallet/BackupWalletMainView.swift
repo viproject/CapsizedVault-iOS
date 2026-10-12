@@ -67,6 +67,9 @@ struct BackupWalletMainView: View {
     }
 
     private var availableTabs: [BackupTab] {
+        if activeWallet.isWatchOnly {
+            return [.keys]
+        }
         var tabs: [BackupTab] = []
         if !activeWallet.currentPolyseedArray.isEmpty { tabs.append(.polyseed) }
         if !activeWallet.currentLegacySeedArray.isEmpty { tabs.append(.legacy) }
@@ -328,7 +331,9 @@ struct BackupWalletMainView: View {
 
     private var keysTab: some View {
         VStack(alignment: .leading, spacing: 10) {
-            BackupWarningBanner(text: "Anyone with your private keys can access and take your funds. Keep them private and offline.")
+            BackupWarningBanner(text: activeWallet.isWatchOnly
+                ? "Anyone with your view key can see your balance and incoming transactions."
+                : "Anyone with your private keys can access and take your funds. Keep them private and offline.")
 
             Text("Your raw address and cryptographic keys. Advanced use only — most backups should use seed phrase instead.")
                 .font(.system(size: 13))
@@ -354,26 +359,28 @@ struct BackupWalletMainView: View {
                 onToggleReveal: nil,
                 onCopy: { quickCopy(activeWallet.spendKeyPublic ?? "", field: "spendPub") }
             )
-            BackupKeyRow(
-                label: "SPEND KEY (PRIVATE)",
-                value: activeWallet.spendKeyPrivate ?? "",
-                isPrivate: true,
-                revealed: spendRevealed,
-                copiedField: false,
-                onToggleReveal: {
-                    spendRevealed.toggle()
-                    if spendRevealed {
-                        Task {
-                            try? await Task.sleep(nanoseconds: 20_000_000_000)
-                            spendRevealed = false
+            if !activeWallet.isWatchOnly {
+                BackupKeyRow(
+                    label: "SPEND KEY (PRIVATE)",
+                    value: activeWallet.spendKeyPrivate ?? "",
+                    isPrivate: true,
+                    revealed: spendRevealed,
+                    copiedField: false,
+                    onToggleReveal: {
+                        spendRevealed.toggle()
+                        if spendRevealed {
+                            Task {
+                                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                                spendRevealed = false
+                            }
                         }
+                    },
+                    onCopy: {
+                        copyTarget = .spendPrivate
+                        copyStage = .confirm
                     }
-                },
-                onCopy: {
-                    copyTarget = .spendPrivate
-                    copyStage = .confirm
-                }
-            )
+                )
+            }
             BackupKeyRow(
                 label: "VIEW KEY (PUBLIC)",
                 value: activeWallet.viewKeyPublic ?? "",

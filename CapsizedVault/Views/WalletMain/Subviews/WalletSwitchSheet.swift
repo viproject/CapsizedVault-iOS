@@ -124,9 +124,20 @@ struct WalletSwitchSheet: View {
 
                     // Name + balance
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(wallet.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.dsTextPrimary)
+                        HStack(spacing: 6) {
+                            Text(wallet.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.dsTextPrimary)
+                            if wallet.isWatchOnly {
+                                Text("View-only")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Color.dsAccentStrong)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.dsJadeSoft)
+                                    .clipShape(Capsule())
+                            }
+                        }
                         if hasBalance && balanceVisible {
                             Text("\(xmrTotal.xmrFormattedBalance) XMR · ≈ $\(String(format: "%.2f", xmrTotal * xmrPrice))")
                                 .font(.system(size: 13))

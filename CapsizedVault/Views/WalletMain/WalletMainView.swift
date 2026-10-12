@@ -49,6 +49,7 @@ struct WalletMainView: View {
     @State private var showingSendXMR = false
     @State private var selectedTransaction: TransactionInfo?
     @State private var labelInput = ""
+    @State private var showingWatchOnlySendAlert = false
 
     // Mac sidebar state (kept for reference)
     @State private var showingTitleAlert = false
@@ -127,6 +128,7 @@ struct WalletMainView: View {
             }
         }) {
             let settingsSheet = SettingsSheet(
+                isWatchOnly: walletManager.activeWallet?.isWatchOnly ?? false,
                 onSecurity: { settingsSheetPending = .security },
                 onNodes: { settingsSheetPending = .nodes },
                 onBackup: { settingsSheetPending = .backup },
@@ -189,6 +191,7 @@ struct WalletMainView: View {
         .sheet(isPresented: $showingRemoveWallet) {
             RemoveWalletView(
                 walletTitle: walletManager.activeWallet?.title ?? "",
+                isWatchOnly: walletManager.activeWallet?.isWatchOnly ?? false,
                 onRemove: {
                     showingRemoveWallet = false
                     walletManager.removeActiveWallet()
@@ -272,6 +275,15 @@ struct WalletMainView: View {
                     balanceCard(wallet, xmrPrice: xmrPrice, hasPending: hasPending)
                         .padding(.bottom, 8)
 
+                    // 4a. View-only balance disclaimer
+                    if wallet.isWatchOnly {
+                        Text("Balance may include spent funds (view-only)")
+                            .font(.dsCaption)
+                            .foregroundStyle(Color.dsTextTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 8)
+                    }
+
                     // 5. Exchange rate caption
                     if xmrPrice > 0 {
                         Text("1 XMR = \(String(format: "$%.2f", xmrPrice))")
@@ -284,7 +296,7 @@ struct WalletMainView: View {
                     }
 
                     // 6. Quick actions
-                    quickActionsRow()
+                    quickActionsRow(wallet)
                         .padding(.bottom, wallet.pendingSeedBackup ? 12 : 16)
 
                     // 7. Sync status card
@@ -340,9 +352,20 @@ struct WalletMainView: View {
                         Text("Wallet")
                             .font(.dsCaption)
                             .foregroundStyle(Color.dsTextTertiary)
-                        Text(wallet.title)
-                            .font(.dsBodyMD)
-                            .foregroundStyle(Color.dsTextPrimary)
+                        HStack(spacing: 6) {
+                            Text(wallet.title)
+                                .font(.dsBodyMD)
+                                .foregroundStyle(Color.dsTextPrimary)
+                            if wallet.isWatchOnly {
+                                Text("View-only")
+                                    .font(.dsCaption)
+                                    .foregroundStyle(Color.dsAccentStrong)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.dsJadeSoft)
+                                    .clipShape(Capsule())
+                            }
+                        }
                     }
 
                     Image(systemName: "chevron.right")
@@ -575,14 +598,23 @@ struct WalletMainView: View {
     // MARK: - Quick actions
 
     @ViewBuilder
-    private func quickActionsRow() -> some View {
+    private func quickActionsRow(_ wallet: XMRWallet) -> some View {
         HStack(spacing: 10) {
             quickActionCell(label: "Send", icon: "arrow.up.right") {
-                showingSendXMR = true
+                if wallet.isWatchOnly {
+                    showingWatchOnlySendAlert = true
+                } else {
+                    showingSendXMR = true
+                }
             }
             quickActionCell(label: "Receive", icon: "arrow.down.left") {
                 showingReceiveXMR = true
             }
+        }
+        .alert("View-only wallet", isPresented: $showingWatchOnlySendAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Watch-only wallet, funds can be sent with offline signing only, coming in future versions.")
         }
     }
 
@@ -997,7 +1029,7 @@ private struct OnboardingView: View {
                     Button("Create a new wallet", action: onCreateWallet)
                         .buttonStyle(.dsPrimary)
 
-                    Button("I have a seed phrase", action: onImportWallet)
+                    Button("Restore wallet", action: onImportWallet)
                         .buttonStyle(.dsSecondary)
 
                     Text("No sign-ups. No KYC. Your keys, your XMR.")

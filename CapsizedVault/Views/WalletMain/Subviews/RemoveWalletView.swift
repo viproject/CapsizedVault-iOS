@@ -9,6 +9,7 @@ import SwiftUI
 
 struct RemoveWalletView: View {
     let walletTitle: String
+    var isWatchOnly: Bool = false
     var onRemove: () -> Void
     var onCancel: () -> Void
 
@@ -17,6 +18,12 @@ struct RemoveWalletView: View {
     @State private var showingSuccessAlert = false
     @State private var showingPINAuthentication = false
     @State private var pinErrorMessage: String?
+
+    private var backupReminder: String {
+        isWatchOnly
+            ? "Make sure you still have the address and view key"
+            : "Make sure you've backed up your recovery seed phrase"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -34,7 +41,7 @@ struct RemoveWalletView: View {
                     .foregroundStyle(Color.dsDanger)
 
                 (Text(walletTitle).bold()
-                 + Text(" will be removed from this device. Make sure you've backed up your recovery seed phrase — this action cannot be undone."))
+                 + Text(" will be removed from this device. \(backupReminder) — this action cannot be undone."))
                     .font(.system(size: 14))
                     .foregroundStyle(Color.dsDanger)
                     .lineSpacing(14 * 0.45)
@@ -82,7 +89,7 @@ struct RemoveWalletView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This action cannot be undone. Make sure you've backed up your recovery seed phrase.")
+            Text("This action cannot be undone. \(backupReminder).")
         }
         .alert("Wallet removed", isPresented: $showingSuccessAlert) {
             Button("Done") { onRemove() }

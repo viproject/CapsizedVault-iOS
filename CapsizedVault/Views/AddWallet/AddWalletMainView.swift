@@ -165,6 +165,12 @@ struct AddWalletMainView: View {
             } else {
                 return "Invalid seed length: \(seedArray.count) words. Expected 16 (Polyseed) or 25 (Legacy)."
             }
+        } else if data.isWatchOnly {
+            guard let address = data.publicAddress, !address.isEmpty,
+                  let viewKey = data.viewKey, !viewKey.isEmpty else {
+                return "Address and view key are both required."
+            }
+            wallet = .watch(address: address, viewKey: viewKey)
         } else {
             guard let address = data.publicAddress, !address.isEmpty,
                   let viewKey = data.viewKey, !viewKey.isEmpty,
