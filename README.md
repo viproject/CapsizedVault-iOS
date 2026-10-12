@@ -1,6 +1,6 @@
 <div align="center">
 
-# CapsizedVault
+# Capsized Vault
 
 A self-custodial Monero wallet for iOS. No accounts, no servers, no tracking — your keys stay on your device.
 
