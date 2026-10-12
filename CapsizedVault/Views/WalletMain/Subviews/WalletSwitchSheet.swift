@@ -139,11 +139,11 @@ struct WalletSwitchSheet: View {
                             }
                         }
                         if hasBalance && balanceVisible {
-                            Text("\(xmrTotal.xmrFormattedBalance) XMR · ≈ $\(String(format: "%.2f", xmrTotal * xmrPrice))")
+                            Text("\(xmrTotal.xmrFormattedBalance) XMR · ≈ $\(String(format: "%.2f", xmrTotal * xmrPrice)) · all accounts")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color.dsTextTertiary)
                         } else if hasBalance {
-                            Text("•••• XMR · ≈ $••••")
+                            Text("•••• XMR · ≈ $•••• · all accounts")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color.dsTextTertiary)
                         } else {
