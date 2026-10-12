@@ -2,6 +2,8 @@
 
 A self-custodial Monero wallet for iOS. No accounts, no servers, no tracking — your keys stay on your device.
 
+[Download on the App Store](https://apps.apple.com/app/id6807507582) · [Follow @Capsizedvault on X](https://x.com/Capsizedvault)
+
 ## Features
 
 - **Create wallets** — generate a new 16-word Polyseed or 25-word legacy Monero seed
