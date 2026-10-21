@@ -112,6 +112,22 @@ def segment_for_offset(segments, off):
     return None
 
 
+def load_commands_end(thin_data):
+    """Return the file offset where a thin 64-bit Mach-O's load commands end
+    (header + sizeofcmds) — i.e. where real section content begins. Signing
+    adds an LC_CODE_SIGNATURE load command, which grows this value and shifts
+    bytes within whichever segment has fileoff 0 (normally __TEXT), without
+    touching any actual code — callers must not compare that prefix region
+    byte-for-byte between an unsigned and signed binary.
+    """
+    magic = struct.unpack_from("<I", thin_data, 0)[0] if len(thin_data) >= 32 else 0
+    endian = _endian_for_magic(magic)
+    if endian is None:
+        return None
+    _, _, _, _, _ncmds, sizeofcmds, _, _ = struct.unpack_from(endian + "8I", thin_data, 0)
+    return 32 + sizeofcmds
+
+
 def read_uuid(thin_data):
     """Return the raw 16-byte LC_UUID value for a thin 64-bit Mach-O slice, or None."""
     magic = struct.unpack_from("<I", thin_data, 0)[0] if len(thin_data) >= 4 else 0

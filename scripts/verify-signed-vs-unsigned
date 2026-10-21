@@ -82,6 +82,16 @@ def compare_macho(rel, path_unsigned, path_signed):
         if segments_unsigned is None:
             return f"{rel} ({arch}): could not parse segments (cannot verify)"
         segments_signed = {name: (fileoff, filesize) for name, fileoff, filesize in (_macho.read_segments(s_slice) or [])}
+
+        # Signing adds an LC_CODE_SIGNATURE load command, which grows
+        # sizeofcmds and shifts bytes within whichever segment has fileoff 0
+        # (normally __TEXT) — without touching any actual code, since the
+        # build always reserves load-command padding for this. Skip that
+        # header/load-commands prefix rather than requiring it byte-for-byte
+        # identical; everything else in the segment still must match exactly.
+        lce_unsigned = _macho.load_commands_end(u_slice) or 0
+        lce_signed = _macho.load_commands_end(s_slice) or 0
+
         for name, fileoff, filesize in segments_unsigned:
             if name == "__LINKEDIT":
                 continue
@@ -90,7 +100,10 @@ def compare_macho(rel, path_unsigned, path_signed):
             s_fileoff, s_filesize = segments_signed[name]
             if filesize != s_filesize:
                 return f"{rel} ({arch}): segment {name!r} size differs ({filesize} vs {s_filesize})"
-            if u_slice[fileoff : fileoff + filesize] != s_slice[s_fileoff : s_fileoff + s_filesize]:
+            skip = 0
+            if fileoff == 0:
+                skip = max(lce_unsigned, lce_signed, fileoff) - fileoff
+            if u_slice[fileoff + skip : fileoff + filesize] != s_slice[s_fileoff + skip : s_fileoff + s_filesize]:
                 return f"{rel} ({arch}): segment {name!r} content differs"
     return None
 
