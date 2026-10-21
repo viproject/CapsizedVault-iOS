@@ -22,7 +22,13 @@ jobs:
       attestations: write
     steps:
       - name: Select Xcode 27.0
-        run: sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          BUILD=$(xcodebuild -version | sed -n 's/^Build version //p')
+          if [ "$BUILD" != "27A266a" ]; then
+            echo "error: expected Xcode build 27A266a, got $BUILD — the runner image's default Xcode has changed. See REPRODUCIBLE_BUILDS.md for the pinned toolchain requirement." >&2
+            exit 1
+          fi
 
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -113,7 +119,13 @@ jobs:
       attestations: write
     steps:
       - name: Select Xcode 27.0
-        run: sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          BUILD=$(xcodebuild -version | sed -n 's/^Build version //p')
+          if [ "$BUILD" != "27A266a" ]; then
+            echo "error: expected Xcode build 27A266a, got $BUILD — the runner image's default Xcode has changed. See REPRODUCIBLE_BUILDS.md for the pinned toolchain requirement." >&2
+            exit 1
+          fi
 
       - name: Download unsigned build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
