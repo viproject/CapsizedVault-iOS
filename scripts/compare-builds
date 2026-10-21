@@ -7,42 +7,10 @@ also reports which segment contains the first differing byte.
 """
 
 import os
-import struct
 import sys
 
-MH_MAGIC_64 = 0xFEEDFACF
-MH_CIGAM_64 = 0xCFFAEDFE
-LC_SEGMENT_64 = 0x19
-
-
-def read_segments(data):
-    """Return [(segname, fileoff, filesize), ...] for a thin 64-bit Mach-O, or None."""
-    if len(data) < 32:
-        return None
-    magic = struct.unpack_from("<I", data, 0)[0]
-    if magic not in (MH_MAGIC_64, MH_CIGAM_64):
-        return None
-    endian = "<" if magic == MH_MAGIC_64 else ">"
-    _, _, _, _, ncmds, _sizeofcmds, _, _ = struct.unpack_from(endian + "8I", data, 0)
-    offset = 32
-    segments = []
-    for _ in range(ncmds):
-        if offset + 8 > len(data):
-            break
-        cmd, cmdsize = struct.unpack_from(endian + "2I", data, offset)
-        if cmd == LC_SEGMENT_64:
-            segname = data[offset + 8 : offset + 24].rstrip(b"\x00").decode("ascii", "replace")
-            fileoff, filesize = struct.unpack_from(endian + "2Q", data, offset + 40)
-            segments.append((segname, fileoff, filesize))
-        offset += cmdsize
-    return segments
-
-
-def segment_for_offset(segments, off):
-    for name, fileoff, filesize in segments:
-        if fileoff <= off < fileoff + filesize:
-            return name
-    return None
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _macho  # noqa: E402
 
 
 def compare_file(path_a, path_b, rel):
@@ -55,13 +23,14 @@ def compare_file(path_a, path_b, rel):
     n = min(len(a), len(b))
     diff_off = next((i for i in range(n) if a[i] != b[i]), n)
     msg = f"{rel}: differs at byte offset {diff_off} (sizes: {len(a)} vs {len(b)})"
-    segments = read_segments(a)
-    if segments is not None:
-        seg = segment_for_offset(segments, diff_off)
+    if _macho.is_macho(a[:4]):
+        arch, seg = _macho.locate_segment(a, diff_off)
         if seg:
-            msg += f" — in Mach-O segment {seg!r}"
+            msg += f" — in Mach-O segment {seg!r} (arch {arch})"
+        elif arch:
+            msg += f" — in Mach-O header/load commands (arch {arch})"
         else:
-            msg += " — in Mach-O header/load commands or outside any __SEGMENT"
+            msg += " — outside any recognized Mach-O arch slice"
     return msg
 
 

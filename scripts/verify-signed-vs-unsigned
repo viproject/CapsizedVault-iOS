@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Verify a signed IPA is exactly the unsigned build plus code signatures.
+
+Usage: verify-signed-vs-unsigned <unsigned.app> <signed.ipa-or-signed.app>
+
+For every Mach-O in the bundle (main app, any embedded framework binaries),
+compares every segment except __LINKEDIT byte-for-byte, and compares LC_UUID
+exactly. For every other file, requires a byte-for-byte match, except
+signing-only paths: any "_CodeSignature" directory, and
+"embedded.mobileprovision". Exits non-zero on any mismatch outside that
+allowlist. Per REPRODUCIBLE_BUILDS.md, this does not (and cannot) verify the
+App Store-delivered binary itself, which is FairPlay-encrypted.
+"""
+
+import os
+import shutil
+import sys
+import tempfile
+import zipfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _macho  # noqa: E402
+
+
+def is_signing_only(rel):
+    parts = rel.split(os.sep)
+    if "_CodeSignature" in parts:
+        return True
+    if os.path.basename(rel) == "embedded.mobileprovision":
+        return True
+    return False
+
+
+def extract_ipa(ipa_path, dest_dir):
+    with zipfile.ZipFile(ipa_path) as zf:
+        zf.extractall(dest_dir)
+    payload = os.path.join(dest_dir, "Payload")
+    apps = [d for d in os.listdir(payload) if d.endswith(".app")]
+    if len(apps) != 1:
+        raise RuntimeError(f"expected exactly one .app in Payload/, found {apps}")
+    return os.path.join(payload, apps[0])
+
+
+def walk(root):
+    out = {}
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root)
+            out[rel] = full
+    return out
+
+
+def compare_macho(rel, path_unsigned, path_signed):
+    with open(path_unsigned, "rb") as f:
+        unsigned = f.read()
+    with open(path_signed, "rb") as f:
+        signed = f.read()
+
+    slices_unsigned = list(_macho.iter_slices(unsigned))
+    if not slices_unsigned:
+        return f"{rel}: not a recognized Mach-O file (cannot verify)"
+    slices_signed = {arch: (start, size) for arch, start, size in _macho.iter_slices(signed)}
+
+    for arch, u_start, u_size in slices_unsigned:
+        if arch not in slices_signed:
+            return f"{rel} ({arch}): architecture slice missing in signed binary"
+        s_start, s_size = slices_signed[arch]
+        u_slice = unsigned[u_start : u_start + u_size]
+        s_slice = signed[s_start : s_start + s_size]
+
+        uuid_unsigned = _macho.read_uuid(u_slice)
+        uuid_signed = _macho.read_uuid(s_slice)
+        if uuid_unsigned != uuid_signed:
+            return (
+                f"{rel} ({arch}): LC_UUID differs "
+                f"({_macho.format_uuid(uuid_unsigned) if uuid_unsigned else None} vs "
+                f"{_macho.format_uuid(uuid_signed) if uuid_signed else None})"
+            )
+
+        segments_unsigned = _macho.read_segments(u_slice)
+        if segments_unsigned is None:
+            return f"{rel} ({arch}): could not parse segments (cannot verify)"
+        segments_signed = {name: (fileoff, filesize) for name, fileoff, filesize in (_macho.read_segments(s_slice) or [])}
+        for name, fileoff, filesize in segments_unsigned:
+            if name == "__LINKEDIT":
+                continue
+            if name not in segments_signed:
+                return f"{rel} ({arch}): segment {name!r} missing in signed binary"
+            s_fileoff, s_filesize = segments_signed[name]
+            if filesize != s_filesize:
+                return f"{rel} ({arch}): segment {name!r} size differs ({filesize} vs {s_filesize})"
+            if u_slice[fileoff : fileoff + filesize] != s_slice[s_fileoff : s_fileoff + s_filesize]:
+                return f"{rel} ({arch}): segment {name!r} content differs"
+    return None
+
+
+def main(argv):
+    if len(argv) != 3:
+        print(f"usage: {argv[0]} <unsigned.app> <signed.ipa-or-signed.app>", file=sys.stderr)
+        return 2
+
+    unsigned_root = argv[1]
+    signed_arg = argv[2]
+
+    cleanup_dir = None
+    try:
+        if os.path.isdir(signed_arg):
+            signed_root = signed_arg
+        else:
+            cleanup_dir = tempfile.mkdtemp(prefix="verify-signed-")
+            signed_root = extract_ipa(signed_arg, cleanup_dir)
+
+        files_unsigned = walk(unsigned_root)
+        files_signed = walk(signed_root)
+        macho_rels = set(_macho.find_macho_files(unsigned_root))
+
+        errors = []
+
+        only_signed = set(files_signed) - set(files_unsigned)
+        for rel in sorted(only_signed):
+            if not is_signing_only(rel):
+                errors.append(f"unexpected extra file in signed build: {rel}")
+
+        only_unsigned = set(files_unsigned) - set(files_signed)
+        for rel in sorted(only_unsigned):
+            errors.append(f"missing in signed build: {rel}")
+
+        for rel in sorted(set(files_unsigned) & set(files_signed)):
+            if rel in macho_rels:
+                err = compare_macho(rel, files_unsigned[rel], files_signed[rel])
+                if err:
+                    errors.append(err)
+            elif is_signing_only(rel):
+                continue
+            else:
+                with open(files_unsigned[rel], "rb") as f:
+                    a = f.read()
+                with open(files_signed[rel], "rb") as f:
+                    b = f.read()
+                if a != b:
+                    errors.append(f"{rel}: content differs")
+
+        if errors:
+            for e in errors:
+                print(e)
+            return 1
+        print("MATCH (signed build is the unsigned build plus signatures)")
+        return 0
+    finally:
+        if cleanup_dir:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
