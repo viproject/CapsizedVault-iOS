@@ -38,6 +38,7 @@ echo "Checking determinism for commit $COMMIT"
 
 CHECKOUT="$WORK/checkout"
 DD="$WORK/dd"
+ARCHIVE="$WORK/CapsizedVault.xcarchive"
 ARTIFACTS="$WORK/artifacts"
 mkdir -p "$ARTIFACTS"
 
@@ -45,13 +46,19 @@ git clone --quiet --no-local --recurse-submodules "$REPO_ROOT" "$CHECKOUT"
 git -C "$CHECKOUT" checkout --quiet "$COMMIT"
 git -C "$CHECKOUT" submodule update --init --recursive --quiet
 
+# Uses the archive action, not build: release.yml signs via
+# `xcodebuild -exportArchive`, which requires an .xcarchive as input (and is
+# the only Apple-documented path to a correctly-structured App Store IPA —
+# see REPRODUCIBLE_BUILDS.md). This re-proves determinism under archive
+# specifically rather than assuming it carries over from the build action.
 build_one() {
     local log="$1"
-    if ! xcodebuild build \
+    if ! xcodebuild archive \
         -project "$CHECKOUT/CapsizedVault.xcodeproj" \
         -scheme CapsizedVault \
         -configuration Release \
         -destination 'generic/platform=iOS' \
+        -archivePath "$ARCHIVE" \
         -derivedDataPath "$DD" \
         -clonedSourcePackagesDirPath "$CHECKOUT/.spm-checkouts" \
         -jobs 1 \
@@ -67,22 +74,22 @@ build_one() {
 
 echo "Building (pass A)..."
 build_one "$WORK/build-a.log"
-APP_SRC="$(find "$DD/Build/Products" -maxdepth 2 -name "CapsizedVault.app" -print -quit)"
-if [ -z "$APP_SRC" ]; then
+APP_SRC="$ARCHIVE/Products/Applications/CapsizedVault.app"
+if [ ! -d "$APP_SRC" ]; then
     echo "error: could not locate built CapsizedVault.app after pass A" >&2
     exit 2
 fi
 cp -R "$APP_SRC" "$ARTIFACTS/A.app"
 
-echo "Wiping DerivedData and rebuilding from scratch (pass B)..."
-rm -rf "$DD"
+echo "Wiping DerivedData and archive, rebuilding from scratch (pass B)..."
+rm -rf "$DD" "$ARCHIVE"
 build_one "$WORK/build-b.log"
 
 APP_A="$ARTIFACTS/A.app"
-APP_B="$(find "$DD/Build/Products" -maxdepth 2 -name "CapsizedVault.app" -print -quit)"
+APP_B="$ARCHIVE/Products/Applications/CapsizedVault.app"
 
-if [ -z "$APP_A" ] || [ -z "$APP_B" ]; then
-    echo "error: could not locate built CapsizedVault.app in one of the DerivedData trees" >&2
+if [ ! -d "$APP_A" ] || [ ! -d "$APP_B" ]; then
+    echo "error: could not locate built CapsizedVault.app in one of the archives" >&2
     exit 2
 fi
 

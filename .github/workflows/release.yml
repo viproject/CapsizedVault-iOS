@@ -44,15 +44,16 @@ jobs:
           } > toolchain.txt
           cat toolchain.txt
 
-      - name: Build unsigned Release
+      - name: Build unsigned Release archive
         env:
           ZERO_AR_DATE: "1"
         run: |
-          xcodebuild build \
+          xcodebuild archive \
             -project CapsizedVault.xcodeproj \
             -scheme CapsizedVault \
             -configuration Release \
             -destination 'generic/platform=iOS' \
+            -archivePath "$GITHUB_WORKSPACE/CapsizedVault.xcarchive" \
             -derivedDataPath "$GITHUB_WORKSPACE/.build-dd" \
             -clonedSourcePackagesDirPath "$GITHUB_WORKSPACE/.spm-checkouts" \
             -jobs 1 \
@@ -62,7 +63,7 @@ jobs:
 
       - name: Package unsigned artifact (deterministic zip)
         run: |
-          APP_DIR="$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos"
+          APP_DIR="$GITHUB_WORKSPACE/CapsizedVault.xcarchive/Products/Applications"
           cd "$APP_DIR"
           # Normalize mtimes and use a sorted, fixed file order so the zip
           # container itself — not just the .app's own bytes — is
@@ -74,19 +75,24 @@ jobs:
           find CapsizedVault.app -type f | LC_ALL=C sort > "$RUNNER_TEMP/filelist.txt"
           zip -X -q "$GITHUB_WORKSPACE/CapsizedVault-unsigned.zip" -@ < "$RUNNER_TEMP/filelist.txt"
 
+      - name: Package archive (for signing/export)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          zip -qr CapsizedVault.xcarchive.zip CapsizedVault.xcarchive
+
       - name: Package dSYMs
         run: |
-          cd "$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos"
+          cd "$GITHUB_WORKSPACE/CapsizedVault.xcarchive/dSYMs"
           zip -qry "$GITHUB_WORKSPACE/CapsizedVault-dSYMs.zip" *.dSYM
 
       - name: Print LC_UUIDs
         run: |
           python3 scripts/print-uuids \
-            "$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos/CapsizedVault.app" \
+            "$GITHUB_WORKSPACE/CapsizedVault.xcarchive/Products/Applications/CapsizedVault.app" \
             | tee uuids.txt
 
       - name: Generate SHA256SUMS
-        run: shasum -a 256 CapsizedVault-unsigned.zip CapsizedVault-dSYMs.zip uuids.txt toolchain.txt > SHA256SUMS
+        run: shasum -a 256 CapsizedVault-unsigned.zip CapsizedVault.xcarchive.zip CapsizedVault-dSYMs.zip uuids.txt toolchain.txt > SHA256SUMS
 
       - name: Attest unsigned artifact
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -99,6 +105,7 @@ jobs:
           name: unsigned-build
           path: |
             CapsizedVault-unsigned.zip
+            CapsizedVault.xcarchive.zip
             CapsizedVault-dSYMs.zip
             SHA256SUMS
             uuids.txt
@@ -141,10 +148,11 @@ jobs:
           path: repo
           sparse-checkout: scripts
 
-      - name: Unzip unsigned build
+      - name: Unzip unsigned build and archive
         run: |
           mkdir unsigned
           unzip -q CapsizedVault-unsigned.zip -d unsigned
+          unzip -q CapsizedVault.xcarchive.zip -d unsigned
 
       - name: Create temporary keychain
         run: |
@@ -177,39 +185,43 @@ jobs:
           mkdir -p "$PROFILE_DIR"
           PROFILE_PATH="$PROFILE_DIR/ci.mobileprovision"
           echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
-          echo "PROFILE_PATH=$PROFILE_PATH" >> "$GITHUB_ENV"
           security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
-          /usr/libexec/PlistBuddy -x -c "Print :Entitlements" "$RUNNER_TEMP/profile.plist" > "$RUNNER_TEMP/entitlements.plist"
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist")
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
 
-      - name: Determine signing identity
+      - name: Export signed IPA
         run: |
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Apple Distribution" | head -1 | sed -E 's/.*"(.+)"/\1/')
-          if [ -z "$IDENTITY" ]; then
-            echo "error: no Apple Distribution identity found in keychain" >&2
+          # xcodebuild -exportArchive is Apple's only documented path to a
+          # correctly-structured App Store IPA (it generates SwiftSupport/
+          # among other things) — see REPRODUCIBLE_BUILDS.md for why we
+          # don't hand-roll this with codesign + zip anymore.
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          cat > "$EXPORT_OPTIONS" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict/>
+          </plist>
+          PLIST
+          /usr/libexec/PlistBuddy -c "Add :method string app-store-connect" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :signingStyle string manual" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :teamID string N82L7Z8JJ9" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :signingCertificate string Apple Distribution" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :destination string export" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:io.capsized.vault string $PROFILE_NAME" "$EXPORT_OPTIONS"
+
+          xcodebuild -exportArchive \
+            -archivePath unsigned/CapsizedVault.xcarchive \
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            -exportPath export
+
+          IPA_PATH="$(find export -name '*.ipa' -print -quit)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "error: -exportArchive did not produce an .ipa" >&2
             exit 1
           fi
-          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-
-      - name: Sign nested code and app (inside-out)
-        run: |
-          APP="unsigned/CapsizedVault.app"
-          if [ -d "$APP/Frameworks" ]; then
-            find "$APP/Frameworks" -depth 1 \( -name "*.framework" -o -name "*.dylib" \) -print0 \
-              | while IFS= read -r -d '' item; do
-                  codesign --force --sign "$SIGNING_IDENTITY" "$item"
-                done
-          fi
-          cp "$PROFILE_PATH" "$APP/embedded.mobileprovision"
-          codesign --force \
-            --sign "$SIGNING_IDENTITY" \
-            --entitlements "$RUNNER_TEMP/entitlements.plist" \
-            "$APP"
-
-      - name: Package signed IPA
-        run: |
-          mkdir -p signed/Payload
-          cp -R unsigned/CapsizedVault.app signed/Payload/
-          (cd signed && zip -qry ../CapsizedVault.ipa Payload)
+          mv "$IPA_PATH" CapsizedVault.ipa
 
       - name: Verify signed IPA matches unsigned build
         run: python3 repo/scripts/verify-signed-vs-unsigned unsigned/CapsizedVault.app CapsizedVault.ipa
