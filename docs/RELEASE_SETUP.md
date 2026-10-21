@@ -36,7 +36,11 @@ gets its own release entry rather than editing a previous one in place.
 
 ## Required secrets
 
-Set these under repo Settings → Secrets and variables → Actions:
+Set these as **environment secrets** on the `release` environment (repo
+Settings → Environments → `release` → Environment secrets) — not repository
+secrets. Scoping them to `release` means a workflow run can only read them
+after passing that environment's required-reviewer gate (see below), rather
+than being available to every job in the repo:
 
 | Secret | Purpose |
 |---|---|

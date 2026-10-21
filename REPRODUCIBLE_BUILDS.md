@@ -106,11 +106,12 @@ is actually non-deterministic.
    does this automatically, building twice to prove it), or build once
    manually:
    ```sh
-   xcodebuild build \
+   xcodebuild archive \
      -project CapsizedVault.xcodeproj \
      -scheme CapsizedVault \
      -configuration Release \
      -destination 'generic/platform=iOS' \
+     -archivePath "$PWD/CapsizedVault.xcarchive" \
      -derivedDataPath "$PWD/.build-dd" \
      -clonedSourcePackagesDirPath "$PWD/.spm-checkouts" \
      -jobs 1 \
@@ -118,15 +119,22 @@ is actually non-deterministic.
      CODE_SIGNING_REQUIRED=NO \
      CODE_SIGNING_ALLOWED=NO
    ```
+   The `.app` ends up at
+   `CapsizedVault.xcarchive/Products/Applications/CapsizedVault.app`. The
+   `archive` action (not `build`) is required — `release.yml`'s `sign` job
+   consumes an `.xcarchive` via `xcodebuild -exportArchive`, Apple's only
+   documented path to a correctly-structured App Store IPA, so this is what's
+   being proven reproducible.
    `-jobs 1` (serial build) is required, not optional — parallel linking
    produces non-deterministic ObjC stub-table ordering in RealmSwift.framework
    specifically; this was confirmed empirically, not assumed.
    `ZERO_AR_DATE=1` should also be set in your shell environment.
 3. Download all the files attached to the matching [GitHub Release](../../releases)
    into one directory — `SHA256SUMS` lists checksums for
-   `CapsizedVault-unsigned.zip`, `CapsizedVault-dSYMs.zip`, `uuids.txt`, and
-   `toolchain.txt` together, and `shasum -c` reports a (misleading) failure
-   for any listed file it can't find on disk, not just the ones you changed.
+   `CapsizedVault-unsigned.zip`, `CapsizedVault.xcarchive.zip`,
+   `CapsizedVault-dSYMs.zip`, `uuids.txt`, and `toolchain.txt` together, and
+   `shasum -c` reports a (misleading) failure for any listed file it can't
+   find on disk, not just the ones you changed.
 4. Compare:
    ```sh
    shasum -a 256 -c SHA256SUMS
@@ -140,7 +148,7 @@ is actually non-deterministic.
    ```sh
    unzip CapsizedVault-unsigned.zip -d theirs
    python3 scripts/compare-builds \
-     .build-dd/Build/Products/Release-iphoneos/CapsizedVault.app \
+     CapsizedVault.xcarchive/Products/Applications/CapsizedVault.app \
      theirs/CapsizedVault.app
    ```
 
@@ -150,7 +158,7 @@ If you have both the published unsigned build and a signed IPA for the same
 release:
 ```sh
 python3 scripts/verify-signed-vs-unsigned \
-  .build-dd/Build/Products/Release-iphoneos/CapsizedVault.app \
+  CapsizedVault.xcarchive/Products/Applications/CapsizedVault.app \
   CapsizedVault.ipa
 ```
 This checks every Mach-O in the bundle (main app plus embedded frameworks)
