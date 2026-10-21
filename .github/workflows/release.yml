@@ -1,0 +1,242 @@
+name: Release
+
+# Tags only. Never pull_request_target — this workflow's sign job handles
+# signing secrets and uploads to App Store Connect.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (unsigned, deterministic)
+    # Pinned preview image carrying the exact Xcode build this project is
+    # built/verified with (27.0, build 27A266a) — see REPRODUCIBLE_BUILDS.md.
+    # Never macos-latest: it would drift under us.
+    runs-on: xcode-27
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Select Xcode 27.0
+        run: sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          submodules: recursive
+
+      - name: Record toolchain info
+        run: |
+          {
+            echo "macOS: $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+            echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+          } > toolchain.txt
+          cat toolchain.txt
+
+      - name: Build unsigned Release
+        env:
+          ZERO_AR_DATE: "1"
+        run: |
+          xcodebuild build \
+            -project CapsizedVault.xcodeproj \
+            -scheme CapsizedVault \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$GITHUB_WORKSPACE/.build-dd" \
+            -clonedSourcePackagesDirPath "$GITHUB_WORKSPACE/.spm-checkouts" \
+            -jobs 1 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package unsigned artifact (deterministic zip)
+        run: |
+          APP_DIR="$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos"
+          cd "$APP_DIR"
+          # Normalize mtimes and use a sorted, fixed file order so the zip
+          # container itself — not just the .app's own bytes — is
+          # reproducible. See REPRODUCIBLE_BUILDS.md for the caveat that
+          # verification should ultimately rely on scripts/compare-builds
+          # against the unzipped .app, not the zip's own hash, since zip
+          # format determinism depends on the zip implementation too.
+          find CapsizedVault.app -exec touch -h -t 202001010000 {} +
+          find CapsizedVault.app -type f | LC_ALL=C sort > "$RUNNER_TEMP/filelist.txt"
+          zip -X -q "$GITHUB_WORKSPACE/CapsizedVault-unsigned.zip" -@ < "$RUNNER_TEMP/filelist.txt"
+
+      - name: Package dSYMs
+        run: |
+          cd "$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos"
+          zip -qry "$GITHUB_WORKSPACE/CapsizedVault-dSYMs.zip" *.dSYM
+
+      - name: Print LC_UUIDs
+        run: |
+          python3 scripts/print-uuids \
+            "$GITHUB_WORKSPACE/.build-dd/Build/Products/Release-iphoneos/CapsizedVault.app" \
+            | tee uuids.txt
+
+      - name: Generate SHA256SUMS
+        run: shasum -a 256 CapsizedVault-unsigned.zip CapsizedVault-dSYMs.zip uuids.txt toolchain.txt > SHA256SUMS
+
+      - name: Attest unsigned artifact
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: CapsizedVault-unsigned.zip
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-build
+          path: |
+            CapsizedVault-unsigned.zip
+            CapsizedVault-dSYMs.zip
+            SHA256SUMS
+            uuids.txt
+            toolchain.txt
+          retention-days: 90
+
+  sign:
+    name: Sign and upload to App Store Connect
+    needs: build
+    runs-on: xcode-27
+    # Configured once in repo Settings -> Environments -> release:
+    # required reviewer `viproject`, deployment restricted to tags matching
+    # `v*`. Neither is expressible in this YAML file.
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Select Xcode 27.0
+        run: sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
+
+      - name: Download unsigned build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: unsigned-build
+
+      - name: Verify downloaded artifact integrity
+        run: shasum -a 256 -c SHA256SUMS
+
+      - name: Checkout verification scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: repo
+          sparse-checkout: scripts
+
+      - name: Unzip unsigned build
+        run: |
+          mkdir unsigned
+          unzip -q CapsizedVault-unsigned.zip -d unsigned
+
+      - name: Create temporary keychain
+        run: |
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      - name: Import distribution certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_P12 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$CERT_PATH"
+
+      - name: Install provisioning profile
+        env:
+          PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          PROFILE_PATH="$PROFILE_DIR/ci.mobileprovision"
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+          echo "PROFILE_PATH=$PROFILE_PATH" >> "$GITHUB_ENV"
+          security cms -D -i "$PROFILE_PATH" > "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy -x -c "Print :Entitlements" "$RUNNER_TEMP/profile.plist" > "$RUNNER_TEMP/entitlements.plist"
+
+      - name: Determine signing identity
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Apple Distribution" | head -1 | sed -E 's/.*"(.+)"/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "error: no Apple Distribution identity found in keychain" >&2
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Sign nested code and app (inside-out)
+        run: |
+          APP="unsigned/CapsizedVault.app"
+          if [ -d "$APP/Frameworks" ]; then
+            find "$APP/Frameworks" -depth 1 \( -name "*.framework" -o -name "*.dylib" \) -print0 \
+              | while IFS= read -r -d '' item; do
+                  codesign --force --sign "$SIGNING_IDENTITY" "$item"
+                done
+          fi
+          cp "$PROFILE_PATH" "$APP/embedded.mobileprovision"
+          codesign --force \
+            --sign "$SIGNING_IDENTITY" \
+            --entitlements "$RUNNER_TEMP/entitlements.plist" \
+            "$APP"
+
+      - name: Package signed IPA
+        run: |
+          mkdir -p signed/Payload
+          cp -R unsigned/CapsizedVault.app signed/Payload/
+          (cd signed && zip -qry ../CapsizedVault.ipa Payload)
+
+      - name: Verify signed IPA matches unsigned build
+        run: python3 repo/scripts/verify-signed-vs-unsigned unsigned/CapsizedVault.app CapsizedVault.ipa
+
+      - name: Delete temporary keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+
+      - name: Upload to App Store Connect
+        env:
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8"
+          echo "$API_KEY_P8" > "$KEY_PATH"
+          xcrun altool --upload-app \
+            -f CapsizedVault.ipa \
+            -t ios \
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID"
+          rm -f "$KEY_PATH"
+
+      - name: Attest signed IPA
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: CapsizedVault.ipa
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          files: |
+            CapsizedVault-unsigned.zip
+            CapsizedVault.ipa
+            CapsizedVault-dSYMs.zip
+            SHA256SUMS
+            uuids.txt
+            toolchain.txt
