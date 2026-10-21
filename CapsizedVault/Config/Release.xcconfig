@@ -1,4 +1,6 @@
 // Release configuration — App Store builds
+#include "Deterministic.xcconfig"
+
 PRODUCT_BUNDLE_IDENTIFIER = io.capsized.vault
 INFOPLIST_KEY_CFBundleDisplayName = Capsized
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon

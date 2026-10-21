@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Compare two unsigned .app bundles byte-for-byte.
+
+Prints MATCH and exits 0 if every file is identical. Otherwise prints the
+first differing file (or missing/extra files) and exits 1. For Mach-O files,
+also reports which segment contains the first differing byte.
+"""
+
+import os
+import struct
+import sys
+
+MH_MAGIC_64 = 0xFEEDFACF
+MH_CIGAM_64 = 0xCFFAEDFE
+LC_SEGMENT_64 = 0x19
+
+
+def read_segments(data):
+    """Return [(segname, fileoff, filesize), ...] for a thin 64-bit Mach-O, or None."""
+    if len(data) < 32:
+        return None
+    magic = struct.unpack_from("<I", data, 0)[0]
+    if magic not in (MH_MAGIC_64, MH_CIGAM_64):
+        return None
+    endian = "<" if magic == MH_MAGIC_64 else ">"
+    _, _, _, _, ncmds, _sizeofcmds, _, _ = struct.unpack_from(endian + "8I", data, 0)
+    offset = 32
+    segments = []
+    for _ in range(ncmds):
+        if offset + 8 > len(data):
+            break
+        cmd, cmdsize = struct.unpack_from(endian + "2I", data, offset)
+        if cmd == LC_SEGMENT_64:
+            segname = data[offset + 8 : offset + 24].rstrip(b"\x00").decode("ascii", "replace")
+            fileoff, filesize = struct.unpack_from(endian + "2Q", data, offset + 40)
+            segments.append((segname, fileoff, filesize))
+        offset += cmdsize
+    return segments
+
+
+def segment_for_offset(segments, off):
+    for name, fileoff, filesize in segments:
+        if fileoff <= off < fileoff + filesize:
+            return name
+    return None
+
+
+def compare_file(path_a, path_b, rel):
+    with open(path_a, "rb") as f:
+        a = f.read()
+    with open(path_b, "rb") as f:
+        b = f.read()
+    if a == b:
+        return None
+    n = min(len(a), len(b))
+    diff_off = next((i for i in range(n) if a[i] != b[i]), n)
+    msg = f"{rel}: differs at byte offset {diff_off} (sizes: {len(a)} vs {len(b)})"
+    segments = read_segments(a)
+    if segments is not None:
+        seg = segment_for_offset(segments, diff_off)
+        if seg:
+            msg += f" — in Mach-O segment {seg!r}"
+        else:
+            msg += " — in Mach-O header/load commands or outside any __SEGMENT"
+    return msg
+
+
+def walk(root):
+    out = {}
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root)
+            out[rel] = full
+    return out
+
+
+def main(argv):
+    if len(argv) != 3:
+        print(f"usage: {argv[0]} <bundle_a> <bundle_b>", file=sys.stderr)
+        return 2
+    root_a, root_b = argv[1], argv[2]
+    files_a = walk(root_a)
+    files_b = walk(root_b)
+    only_a = sorted(set(files_a) - set(files_b))
+    only_b = sorted(set(files_b) - set(files_a))
+    if only_a or only_b:
+        for rel in only_a:
+            print(f"only in {root_a}: {rel}")
+        for rel in only_b:
+            print(f"only in {root_b}: {rel}")
+        return 1
+    for rel in sorted(files_a):
+        diff = compare_file(files_a[rel], files_b[rel], rel)
+        if diff:
+            print(diff)
+            return 1
+    print("MATCH")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

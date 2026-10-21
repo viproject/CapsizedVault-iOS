@@ -1,0 +1,9 @@
+// Deterministic.xcconfig — path normalization for reproducible Release builds.
+// Maps the absolute source root and build-intermediates root to fixed placeholder
+// paths, and strips embedded object-file paths from the linked binary's symbol
+// table, so a Release build from a different checkout location or build directory
+// produces byte-identical output. See scripts/check-determinism.sh.
+
+OTHER_SWIFT_FLAGS = $(inherited) -file-prefix-map $(SRCROOT)=/BUILD -file-prefix-map $(OBJROOT)=/BUILD/DerivedData
+OTHER_CFLAGS = $(inherited) -ffile-prefix-map=$(SRCROOT)=/BUILD -ffile-prefix-map=$(OBJROOT)=/BUILD/DerivedData
+OTHER_LDFLAGS = $(inherited) -Xlinker -oso_prefix -Xlinker $(OBJROOT)/

@@ -204,7 +204,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\nGIT_HASH=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo \"unknown\")\n\n# PROCESSED_INFOPLIST_FILE is empty during archive builds; fall back to BUILT_PRODUCTS_DIR\nPLIST_PATH=\"${PROCESSED_INFOPLIST_FILE:-$BUILT_PRODUCTS_DIR/$INFOPLIST_PATH}\"\n\nif [ -f \"$PLIST_PATH\" ]; then\n    /usr/libexec/PlistBuddy -c \"Add :GitCommit string $GIT_HASH\" \"$PLIST_PATH\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Set :GitCommit $GIT_HASH\" \"$PLIST_PATH\"\n    if [ \"$ACTION\" = \"install\" ]; then\n        BUILD_NUMBER=$(git -C \"$SRCROOT\" rev-list --count HEAD)\n        /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $BUILD_NUMBER\" \"$PLIST_PATH\"\n    fi\nfi\n";
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\nGIT_HASH=$(git -C \"$SRCROOT\" rev-parse --short HEAD 2>/dev/null || echo \"unknown\")\n\n# PROCESSED_INFOPLIST_FILE is empty during archive builds; fall back to BUILT_PRODUCTS_DIR\nPLIST_PATH=\"${PROCESSED_INFOPLIST_FILE:-$BUILT_PRODUCTS_DIR/$INFOPLIST_PATH}\"\n\nif [ -f \"$PLIST_PATH\" ]; then\n    /usr/libexec/PlistBuddy -c \"Add :GitCommit string $GIT_HASH\" \"$PLIST_PATH\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Set :GitCommit $GIT_HASH\" \"$PLIST_PATH\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -283,6 +283,8 @@
 		};
 		C40E1CD32EE2EBEC006C3E11 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = C40E1CCB2EE2EBE9006C3E11 /* CapsizedVault */;
+			baseConfigurationReferenceRelativePath = Config/Deterministic.xcconfig;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -351,7 +353,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = Capsized;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
@@ -407,7 +409,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = Capsized;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
@@ -516,7 +518,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = CapsizedVault/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Capsized Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = Capsized;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Used to scan QR codes for wallet addresses and payment requests.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Used to unlock the app with Face ID instead of your PIN.";
