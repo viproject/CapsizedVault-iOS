@@ -10,6 +10,7 @@
 		C40E1CDD2EE2FF7E006C3E11 /* RealmSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C40E1CDC2EE2FF7E006C3E11 /* RealmSwift */; };
 		C40E1CE72EE303E3006C3E11 /* RealmSwift in Embed Frameworks */ = {isa = PBXBuildFile; productRef = C40E1CDC2EE2FF7E006C3E11 /* RealmSwift */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C4596AE33041C327007E4116 /* CapsizedMoneroKit in Frameworks */ = {isa = PBXBuildFile; productRef = C4596AE23041C327007E4116 /* CapsizedMoneroKit */; };
+		C45E796B308F784D0022F3CF /* ZcashLightClientKit in Frameworks */ = {isa = PBXBuildFile; productRef = C45E796A308F784D0022F3CF /* ZcashLightClientKit */; };
 		C4F4FA0D2F6D80EA00A89F81 /* QRCode in Frameworks */ = {isa = PBXBuildFile; productRef = C4F4FA0C2F6D80EA00A89F81 /* QRCode */; };
 		C4F577C0303746BA00B3123E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C4F577BF303746BA00B3123E /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -63,6 +64,7 @@
 				C4596AE33041C327007E4116 /* CapsizedMoneroKit in Frameworks */,
 				C40E1CDD2EE2FF7E006C3E11 /* RealmSwift in Frameworks */,
 				C4F4FA0D2F6D80EA00A89F81 /* QRCode in Frameworks */,
+				C45E796B308F784D0022F3CF /* ZcashLightClientKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -128,6 +130,7 @@
 				C40E1CDC2EE2FF7E006C3E11 /* RealmSwift */,
 				C4F4FA0C2F6D80EA00A89F81 /* QRCode */,
 				C4596AE23041C327007E4116 /* CapsizedMoneroKit */,
+				C45E796A308F784D0022F3CF /* ZcashLightClientKit */,
 			);
 			productName = CapsizedVault;
 			productReference = C40E1CC92EE2EBE9006C3E11 /* CapsizedVault.app */;
@@ -162,6 +165,7 @@
 				C40E1CD92EE2FF7E006C3E11 /* XCRemoteSwiftPackageReference "realm-swift" */,
 				C4F4FA0B2F6D80EA00A89F81 /* XCRemoteSwiftPackageReference "qrcode" */,
 				C4596AE13041C327007E4116 /* XCLocalSwiftPackageReference "Modules/CapsizedMoneroKit.Swift" */,
+				C45E7969308F784D0022F3CF /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C40E1CCA2EE2EBE9006C3E11 /* Products */;
@@ -598,6 +602,14 @@
 				minimumVersion = 20.0.0;
 			};
 		};
+		C45E7969308F784D0022F3CF /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/zcash/zcash-swift-wallet-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.0;
+			};
+		};
 		C4F4FA0B2F6D80EA00A89F81 /* XCRemoteSwiftPackageReference "qrcode" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/dagronf/qrcode.git";
@@ -618,6 +630,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C4596AE13041C327007E4116 /* XCLocalSwiftPackageReference "Modules/CapsizedMoneroKit.Swift" */;
 			productName = CapsizedMoneroKit;
+		};
+		C45E796A308F784D0022F3CF /* ZcashLightClientKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C45E7969308F784D0022F3CF /* XCRemoteSwiftPackageReference "zcash-swift-wallet-sdk" */;
+			productName = ZcashLightClientKit;
 		};
 		C4F4FA0C2F6D80EA00A89F81 /* QRCode */ = {
 			isa = XCSwiftPackageProductDependency;
