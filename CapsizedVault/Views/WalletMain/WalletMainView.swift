@@ -46,6 +46,7 @@ struct WalletMainView: View {
     @State private var showingAppSettings = false
     @State private var showingNodeSettings = false
     @State private var showingReceiveXMR = false
+    @State private var showingReceiveZEC = false
     @State private var showingSendXMR = false
     @State private var selectedTransactionHash: String?
     @State private var labelInput = ""
@@ -233,6 +234,12 @@ struct WalletMainView: View {
         }
         .sheet(isPresented: $showingReceiveXMR) {
             ReceiveXMRView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(20)
+        }
+        .sheet(isPresented: $showingReceiveZEC) {
+            ReceiveZECView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
@@ -634,7 +641,7 @@ struct WalletMainView: View {
 
     @ViewBuilder
     private func quickActionsRow(_ wallet: BaseWallet) -> some View {
-        let canReceive = wallet.moneroWallet != nil
+        let canReceive = wallet.moneroWallet != nil || wallet.zcashWallet != nil
         HStack(spacing: 10) {
             quickActionCell(label: "Send", icon: "arrow.up.right", enabled: wallet.capabilities.canSend) {
                 if wallet.isWatchOnly {
@@ -644,7 +651,11 @@ struct WalletMainView: View {
                 }
             }
             quickActionCell(label: "Receive", icon: "arrow.down.left", enabled: canReceive) {
-                showingReceiveXMR = true
+                if wallet.zcashWallet != nil {
+                    showingReceiveZEC = true
+                } else {
+                    showingReceiveXMR = true
+                }
             }
         }
         .alert("View-only wallet", isPresented: $showingWatchOnlySendAlert) {

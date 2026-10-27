@@ -25,6 +25,13 @@ private final class FakeZcashEngine: ZcashEngine {
     var balance: WalletAccountBalance?
     var pages: [[WalletTransaction]] = []
 
+    var fakeUnifiedAddress = "u1fakeunifiedaddress"
+    var fakeTransparentAddress = "t1faketransparentaddress"
+    private(set) var shieldFundsCount = 0
+    private(set) var lastShieldSeed: [UInt8]?
+    private(set) var lastShieldMemo: String?
+    var shieldFundsResult: Result<Bool, Error> = .success(true)
+
     init() {
         var continuation: AsyncStream<ZcashEngineUpdate>.Continuation!
         self.updates = AsyncStream { continuation = $0 }
@@ -63,6 +70,26 @@ private final class FakeZcashEngine: ZcashEngine {
 
     func transactions(page: Int) async throws -> [WalletTransaction] {
         pages.indices.contains(page) ? pages[page] : []
+    }
+
+    func unifiedAddress() async throws -> String {
+        fakeUnifiedAddress
+    }
+
+    func transparentAddress() async throws -> String {
+        fakeTransparentAddress
+    }
+
+    func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool {
+        shieldFundsCount += 1
+        lastShieldSeed = seed
+        lastShieldMemo = memo
+        switch shieldFundsResult {
+        case .success(let shielded):
+            return shielded
+        case .failure(let error):
+            throw error
+        }
     }
 
     func sendStatus(_ status: WalletSyncStatus) {
@@ -264,6 +291,106 @@ struct ZECWalletTests {
         #expect(KeychainHelper.pendingZcashViewingKey(for: walletId) == "uview1failingkey")
         #expect(engine.startCount == 0)
 
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+    }
+
+    // MARK: - Receive addresses
+
+    @Test func activateLoadsUnifiedAndTransparentAddresses() async throws {
+        let engine = FakeZcashEngine()
+        engine.fakeUnifiedAddress = "u1testaddress"
+        engine.fakeTransparentAddress = "t1testaddress"
+
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+
+        try await waitUntil { wallet.unifiedAddress != nil }
+        #expect(wallet.unifiedAddress == "u1testaddress")
+        #expect(wallet.transparentAddress == "t1testaddress")
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    // MARK: - Shield funds
+
+    @Test func shieldFundsPassesSeedAndReportsSuccess() async throws {
+        let engine = FakeZcashEngine()
+        engine.shieldFundsResult = .success(true)
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.shieldFunds()
+
+        #expect(engine.shieldFundsCount == 1)
+        #expect(engine.lastShieldSeed?.isEmpty == false)
+        if case .success(let shielded) = result {
+            #expect(shielded == true)
+        } else {
+            Issue.record("Expected success")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func shieldFundsReturnsFalseWhenNothingToShield() async throws {
+        let engine = FakeZcashEngine()
+        engine.shieldFundsResult = .success(false)
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.shieldFunds()
+
+        if case .success(let shielded) = result {
+            #expect(shielded == false)
+        } else {
+            Issue.record("Expected success")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func shieldFundsPropagatesEngineErrorAsWalletError() async throws {
+        let engine = FakeZcashEngine()
+        engine.shieldFundsResult = .failure(ZcashEngineError.noAccount)
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.shieldFunds()
+
+        if case .failure = result {
+            // expected
+        } else {
+            Issue.record("Expected failure")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func shieldFundsOnViewOnlyWalletFailsWithoutCallingEngine() async throws {
+        let engine = FakeZcashEngine()
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1shieldtest", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.shieldFunds()
+
+        #expect(engine.shieldFundsCount == 0)
+        if case .failure = result {
+            // expected
+        } else {
+            Issue.record("Expected failure")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
         KeychainHelper.deletePendingZcashViewingKey(for: walletId)
     }
 }

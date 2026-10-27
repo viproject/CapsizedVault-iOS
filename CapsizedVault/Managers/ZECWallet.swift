@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import Combine
 import HdWalletKit
 
 class ZECWallet: BaseWallet {
@@ -27,6 +28,10 @@ class ZECWallet: BaseWallet {
     private var engine: ZcashEngine?
     private var activationTask: Task<Void, Never>?
     private var loadedPage: Int = 0
+
+    @Published private(set) var unifiedAddress: String?
+    @Published private(set) var transparentAddress: String?
+    @Published private(set) var isShielding: Bool = false
 
     init(fromRealm realmObj: WalletsData, engineFactory: @escaping (String) -> ZcashEngine = { SDKZcashEngine(walletId: $0) }) {
         self.engineFactory = engineFactory
@@ -80,7 +85,7 @@ class ZECWallet: BaseWallet {
         WalletCapabilities(
             supportsSubaddresses: false,
             hasTransparentPool: true,
-            supportsShielding: true,
+            supportsShielding: !isWatchOnly, // needs the spending key — no seed for view-only wallets.
             accountCreation: isWatchOnly ? .importViewingKey : .derive,
             supportsMemo: true,
             supportsSendPriority: false,
@@ -111,14 +116,12 @@ class ZECWallet: BaseWallet {
                         KeychainHelper.deletePendingZcashViewingKey(for: walletId)
                     }
                 } else {
-                    guard let seedData = KeychainHelper.zcashSeed(for: walletId),
-                          let seedWords = String(data: seedData, encoding: .utf8)?.components(separatedBy: " "),
-                          let seedBytes = Mnemonic.seed(mnemonic: seedWords) else {
+                    guard let seedBytes = ZECWallet.resolveSeedBytes(for: walletId) else {
                         self.walletError = .walletFilesMissing
                         self.engine = nil
                         return
                     }
-                    try await engine.prepare(seed: [UInt8](seedBytes), birthday: birthdayHeight)
+                    try await engine.prepare(seed: seedBytes, birthday: birthdayHeight)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -136,6 +139,9 @@ class ZECWallet: BaseWallet {
                 self.engine = nil
                 return
             }
+            guard !Task.isCancelled else { return }
+
+            await self.loadAddresses(engine: engine)
             guard !Task.isCancelled else { return }
 
             for await update in engine.updates {
@@ -221,6 +227,42 @@ class ZECWallet: BaseWallet {
     func loadNextTransactionPage() {
         loadedPage += 1
         Task { await refreshTransactions() }
+    }
+
+    /// Moves this account's transparent balance into the shielded pool. Only valid when
+    /// `capabilities.supportsShielding` is true (never for watch-only wallets — there's no
+    /// seed to derive a spending key from). Returns `.success(false)` if there was no
+    /// transparent balance to shield.
+    func shieldFunds(memo: String? = nil) async -> Result<Bool, WalletError> {
+        guard !isWatchOnly else { return .failure(.unknown("View-only wallets can't shield funds.")) }
+        guard let engine else { return .failure(.walletFilesMissing) }
+        guard let seedBytes = ZECWallet.resolveSeedBytes(for: walletId) else { return .failure(.walletFilesMissing) }
+
+        isShielding = true
+        defer { isShielding = false }
+        do {
+            let shielded = try await engine.shieldFunds(seed: seedBytes, memo: memo)
+            if shielded {
+                await refreshBalance()
+            }
+            return .success(shielded)
+        } catch {
+            return .failure(.unknown("Failed to shield funds: \(error.localizedDescription)"))
+        }
+    }
+
+    private func loadAddresses(engine: ZcashEngine) async {
+        unifiedAddress = try? await engine.unifiedAddress()
+        transparentAddress = try? await engine.transparentAddress()
+    }
+
+    private static func resolveSeedBytes(for walletId: String) -> [UInt8]? {
+        guard let seedData = KeychainHelper.zcashSeed(for: walletId),
+              let seedWords = String(data: seedData, encoding: .utf8)?.components(separatedBy: " "),
+              let seedBytes = Mnemonic.seed(mnemonic: seedWords) else {
+            return nil
+        }
+        return [UInt8](seedBytes)
     }
 
     private func stopEngine(_ engine: ZcashEngine) {

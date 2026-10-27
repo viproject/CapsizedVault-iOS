@@ -32,15 +32,29 @@ protocol ZcashEngine: AnyObject {
     func stop() async
     func accountBalance() async throws -> WalletAccountBalance?
     func transactions(page: Int) async throws -> [WalletTransaction]
+
+    func unifiedAddress() async throws -> String
+    func transparentAddress() async throws -> String
+    /// Creates and submits a proposal shielding this account's transparent balance into the
+    /// shielded pool. `seed` derives the spending key needed to sign — never called for
+    /// watch-only wallets (gated by `ZECWallet.capabilities.supportsShielding`). Returns
+    /// `false` if there was no transparent balance to shield.
+    func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool
 }
 
 enum ZcashEngineError: LocalizedError {
     case viewingKeyMissing
+    case noAccount
+    case shieldingFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .viewingKeyMissing:
             return "No viewing key available to import."
+        case .noAccount:
+            return "No account available yet."
+        case .shieldingFailed(let description):
+            return description
         }
     }
 }
@@ -69,7 +83,9 @@ final class SDKZcashEngine: ZcashEngine {
     let updates: AsyncStream<ZcashEngineUpdate>
 
     private let synchronizer: SDKSynchronizer
+    private let network: NetworkType
     private var accountUUID: AccountUUID?
+    private var hdAccountIndex: Zip32AccountIndex?
     private var cancellables: Set<AnyCancellable> = []
     private let updatesContinuation: AsyncStream<ZcashEngineUpdate>.Continuation
 
@@ -78,6 +94,7 @@ final class SDKZcashEngine: ZcashEngine {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let network = ZcashNetworkBuilder.network(for: .mainnet)
+        self.network = network.networkType
         // Hard-coded until phase 9's ZcashServerSettingsView. Always TLS — no UI path to
         // disable it, per the security-review decision.
         let endpoint = LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
@@ -126,7 +143,9 @@ final class SDKZcashEngine: ZcashEngine {
 
     func prepare(seed: [UInt8], birthday: Int?) async throws {
         _ = try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Account 1", keySource: nil)
-        accountUUID = try await synchronizer.listAccounts().first?.id
+        let account = try await synchronizer.listAccounts().first
+        accountUUID = account?.id
+        hdAccountIndex = account?.hdAccountIndex
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
@@ -189,6 +208,45 @@ final class SDKZcashEngine: ZcashEngine {
         let repository = synchronizer.paginatedTransactions(of: .all)
         guard let overviews = try await repository.page(page) else { return [] }
         return overviews.map(Self.mapTransaction)
+    }
+
+    func unifiedAddress() async throws -> String {
+        guard let accountUUID else { throw ZcashEngineError.noAccount }
+        return try await synchronizer.getUnifiedAddress(accountUUID: accountUUID).stringEncoded
+    }
+
+    func transparentAddress() async throws -> String {
+        guard let accountUUID else { throw ZcashEngineError.noAccount }
+        return try await synchronizer.getTransparentAddress(accountUUID: accountUUID).stringEncoded
+    }
+
+    func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool {
+        guard let accountUUID, let hdAccountIndex else { throw ZcashEngineError.noAccount }
+        let memoValue = try memo.map { try Memo(string: $0) } ?? Memo.empty
+        // User-initiated, not an automatic sweep, so shield whatever is there rather than
+        // withholding below some dust threshold.
+        guard let proposal = try await synchronizer.proposeShielding(
+            accountUUID: accountUUID,
+            shieldingThreshold: .zero,
+            memo: memoValue,
+            transparentReceiver: nil
+        ) else {
+            return false
+        }
+
+        let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdAccountIndex)
+        let stream = try await synchronizer.createProposedTransactions(proposal: proposal, spendingKey: usk)
+        for try await result in stream {
+            switch result {
+            case .success, .notAttempted:
+                continue
+            case .grpcFailure(_, let error):
+                throw error
+            case .submitFailure(_, _, let description):
+                throw ZcashEngineError.shieldingFailed(description)
+            }
+        }
+        return true
     }
 
     private func isStopped(_ status: SyncStatus) -> Bool {
