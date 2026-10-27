@@ -21,6 +21,10 @@ class WalletsData: Object, Identifiable {
     /// Last known total unlocked balance in piconero (sum across all accounts).
     /// -1 means the wallet has never been synced / no cached value yet.
     @Persisted var cachedTotalUnlockedPiconero: Int64 = -1
-    
+    /// `Coin.rawValue`. Added in schema 9 — every row from before that migration is Monero.
+    @Persisted var coin: String = Coin.monero.rawValue
+    /// Zcash seed birthday block height. Always nil for Monero wallets.
+    @Persisted var birthdayHeight: Int?
+
 }
 

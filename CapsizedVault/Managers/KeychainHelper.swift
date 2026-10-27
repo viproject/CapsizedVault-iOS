@@ -34,6 +34,34 @@ enum KeychainHelper {
         "io.capsized.vault.wallet-password.\(walletId)"
     }
 
+    // MARK: - Zcash wallet seed
+
+    @discardableResult
+    static func saveZcashSeed(_ seed: Data, for walletId: String) -> Bool {
+        let key = zcashSeedKey(walletId)
+        deleteItem(forKey: key)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: seed,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func zcashSeed(for walletId: String) -> Data? {
+        readData(forKey: zcashSeedKey(walletId))
+    }
+
+    @discardableResult
+    static func deleteZcashSeed(for walletId: String) -> Bool {
+        deleteItem(forKey: zcashSeedKey(walletId))
+    }
+
+    private static func zcashSeedKey(_ walletId: String) -> String {
+        "io.capsized.vault.zcash-seed.\(walletId)"
+    }
+
     // MARK: - Custom node RPC credentials
 
     private struct NodeCredentials: Codable {

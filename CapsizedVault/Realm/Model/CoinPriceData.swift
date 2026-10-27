@@ -11,6 +11,7 @@ import RealmSwift
 
 enum CoinId: String, CaseIterable {
     case monero = "monero"
+    case zcash = "zcash"
 }
 
 enum FiatCurrency: String, CaseIterable {

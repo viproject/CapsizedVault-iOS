@@ -23,7 +23,7 @@ class RealmManager {
     private var _realm: Realm?
     private var _realmConfiguration: Realm.Configuration {
         var config = Realm.Configuration.defaultConfiguration
-        config.schemaVersion = 8
+        config.schemaVersion = 9
         config.migrationBlock = { migration, oldSchemaVersion in
             if oldSchemaVersion < 7 {
                 // Realm zero-fills new Int64 fields; explicitly set -1 (= "never synced")
@@ -35,6 +35,16 @@ class RealmManager {
             // Schema 8 drops NodeData.login/password (moved to Keychain, see KeychainHelper).
             // No known installs have saved custom node credentials yet, so nothing to carry
             // over — Realm removes the two columns on its own.
+            if oldSchemaVersion < 9 {
+                // Realm zero-fills new String fields to "", not the Swift-level default;
+                // every wallet/node from before this migration is Monero, so set it explicitly.
+                migration.enumerateObjects(ofType: "WalletsData") { _, newObject in
+                    newObject?["coin"] = Coin.monero.rawValue
+                }
+                migration.enumerateObjects(ofType: "NodeData") { _, newObject in
+                    newObject?["coin"] = Coin.monero.rawValue
+                }
+            }
         }
         return config
     }
