@@ -126,6 +126,12 @@ class AddWalletViewModel: ObservableObject {
         var legacySeedLanguage: LegacySeedLanguage = .english
     }
     
+    class AWNewZcashWallet {
+        var title: String? = nil
+        var words: [String] = []
+        var backedUp: Bool = false
+    }
+
     class AWRestoreMoneroWallet {
         var title: String? = nil
         var isFromSeed = true
@@ -147,6 +153,7 @@ class AddWalletViewModel: ObservableObject {
     }
     
     var newMoneroWalletData: AWNewMoneroWallet = AWNewMoneroWallet()
+    var newZcashWalletData: AWNewZcashWallet = AWNewZcashWallet()
     var restoreMoneroWalletData: AWRestoreMoneroWallet = AWRestoreMoneroWallet()
     
 }

@@ -1,5 +1,5 @@
 //
-//  AWNewMoneroSeed.swift
+//  AWSeedBackUp.swift
 //  CapsizedVault
 //
 //  Created by Dmitrij on 24/12/2025.
@@ -15,8 +15,11 @@ fileprivate enum SeedCopyStage: Equatable { case none, confirm, status, cleared 
 
 // MARK: - Main View
 
-struct AWNewMonero3SeedBackUp: View {
+struct AWSeedBackUp: View {
 
+    let words: [String]
+    let passphrase: String?
+    @Binding var backedUp: Bool
     let nextAction: () -> Void
 
     @State private var showMoreDetails = false
@@ -26,8 +29,6 @@ struct AWNewMonero3SeedBackUp: View {
     @State private var copyTarget: SeedCopyTarget? = nil
     @State private var copyStage: SeedCopyStage = .none
     @State private var countdownSeconds = 30
-
-    @EnvironmentObject var walletVM: AddWalletViewModel
 
     var body: some View {
         ZStack {
@@ -72,11 +73,11 @@ struct AWNewMonero3SeedBackUp: View {
                         }
 
                         // Passphrase section (if applicable)
-                        if !walletVM.newMoneroWalletData.passphrase.isEmpty {
+                        if let passphrase, !passphrase.isEmpty {
                             VStack(alignment: .center, spacing: 14) {
                                 SeedSectionTitle(label: "Passphrase Backup")
 
-                                passphraseRevealSection
+                                passphraseRevealSection(passphrase)
 
                                 HStack {
                                     Spacer()
@@ -138,7 +139,7 @@ struct AWNewMonero3SeedBackUp: View {
                     Button {
                         withAnimation {
                             savedAck.toggle()
-                            if savedAck { walletVM.newMoneroWalletData.backedUp = true }
+                            if savedAck { backedUp = true }
                         }
                     } label: {
                         HStack(spacing: 10) {
@@ -180,8 +181,7 @@ struct AWNewMonero3SeedBackUp: View {
     // MARK: - Seed reveal
 
     private var seedPhraseRevealSection: some View {
-        let words = (walletVM.newMoneroWalletData.seed ?? "").components(separatedBy: CharacterSet(charactersIn: " \u{3000}"))
-        return ZStack {
+        ZStack {
             SeedPhraseGrid(words: words)
                 .blur(radius: seedRevealed ? 0 : 4)
                 .animation(.easeInOut(duration: 0.15), value: seedRevealed)
@@ -210,9 +210,9 @@ struct AWNewMonero3SeedBackUp: View {
 
     // MARK: - Passphrase reveal
 
-    private var passphraseRevealSection: some View {
+    private func passphraseRevealSection(_ passphrase: String) -> some View {
         ZStack {
-            Text(walletVM.newMoneroWalletData.passphrase)
+            Text(passphrase)
                 .font(.system(size: 20, weight: .bold, design: .monospaced))
                 .foregroundStyle(Color.dsTextPrimary)
                 .multilineTextAlignment(.center)
@@ -422,8 +422,8 @@ struct AWNewMonero3SeedBackUp: View {
     private func performCopy() {
         let text: String
         switch copyTarget {
-        case .seed: text = walletVM.newMoneroWalletData.seed ?? ""
-        case .passphrase: text = walletVM.newMoneroWalletData.passphrase
+        case .seed: text = words.joined(separator: " ")
+        case .passphrase: text = passphrase ?? ""
         case .none: return
         }
         UIPasteboard.general.setItems(

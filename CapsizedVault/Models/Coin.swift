@@ -40,6 +40,13 @@ nonisolated enum Coin: String, CaseIterable, Sendable {
         case .zcash: return 100_000_000
         }
     }
+
+    var coinId: CoinId {
+        switch self {
+        case .monero: return .monero
+        case .zcash: return .zcash
+        }
+    }
 }
 
 /// An amount of a specific coin, stored as atomic units (piconero for Monero, zatoshi for

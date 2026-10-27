@@ -8,52 +8,92 @@
 import SwiftUI
 import CapsizedMoneroKit
 import HsToolKit
+import HdWalletKit
 
 enum AWCurrentView {
+    case selectCoin
     case newMonero1Title, newMonero3SeedBackUp, newMonero4BackUpLater
+    case newZcash1Title, newZcash2SeedBackUp, newZcash3BackUpLater
     case restoreMonero1SeedKeys, restoreMonero2Title
 }
 
 enum AWWalletType {
-    case moneroNew, moneroRestore
+    case moneroNew, moneroRestore, zcashNew
 }
 
 struct AddWalletMainView: View {
 
-    
+
     @Binding var isPresented: Bool
-    let currentWalletType: AWWalletType
-    
-    @State private var currentView: AWCurrentView = .newMonero1Title
+
+    @State private var currentWalletType: AWWalletType
+    @State private var currentView: AWCurrentView
     @State private var restoreError: String?
     @StateObject private var walletVM = AddWalletViewModel()
-    
+
     let daemonAddress: String = "http://xmr-node.cakewallet.com:18081"
     let restoreHeight: String = "\(RestoreHeight.getHeight(date: Date()))"
 
     init(isPresented: Binding<Bool>, currentWalletType: AWWalletType) {
         self._isPresented = isPresented
-        self.currentWalletType = currentWalletType
-        
+        self._currentWalletType = State(initialValue: currentWalletType)
+
         switch currentWalletType {
         case .moneroNew:
-            _currentView = State(initialValue: .newMonero1Title)
+            _currentView = State(initialValue: .selectCoin)
         case .moneroRestore:
             _currentView = State(initialValue: .restoreMonero1SeedKeys)
+        case .zcashNew:
+            _currentView = State(initialValue: .newZcash1Title)
         }
     }
 
-    
+
     var body: some View {
         Group {
             switch currentView {
+            case .selectCoin:
+                AWSelectCoin(isPresented: $isPresented) { coin in
+                    switch coin {
+                    case .monero:
+                        currentWalletType = .moneroNew
+                        currentView = .newMonero1Title
+                    case .zcash:
+                        currentWalletType = .zcashNew
+                        currentView = .newZcash1Title
+                    }
+                }
             case .newMonero1Title:
                 AWNewMonero1Title(isPresented: $isPresented, nextAction: nextAction)
                     .environmentObject(walletVM)
             case .newMonero3SeedBackUp:
-                AWNewMonero3SeedBackUp(nextAction: nextAction)
-                    .environmentObject(walletVM)
+                AWSeedBackUp(
+                    words: (walletVM.newMoneroWalletData.seed ?? "")
+                        .components(separatedBy: CharacterSet(charactersIn: " \u{3000}"))
+                        .filter { !$0.isEmpty },
+                    passphrase: walletVM.newMoneroWalletData.passphrase.isEmpty ? nil : walletVM.newMoneroWalletData.passphrase,
+                    backedUp: Binding(
+                        get: { walletVM.newMoneroWalletData.backedUp },
+                        set: { walletVM.newMoneroWalletData.backedUp = $0 }
+                    ),
+                    nextAction: nextAction
+                )
             case .newMonero4BackUpLater:
+                AWNewMonero4BackUpLater(nextAction: nextAction, backAction: backAction)
+            case .newZcash1Title:
+                AWNewZcash1Title(isPresented: $isPresented, nextAction: nextAction)
+                    .environmentObject(walletVM)
+            case .newZcash2SeedBackUp:
+                AWSeedBackUp(
+                    words: walletVM.newZcashWalletData.words,
+                    passphrase: nil,
+                    backedUp: Binding(
+                        get: { walletVM.newZcashWalletData.backedUp },
+                        set: { walletVM.newZcashWalletData.backedUp = $0 }
+                    ),
+                    nextAction: nextAction
+                )
+            case .newZcash3BackUpLater:
                 AWNewMonero4BackUpLater(nextAction: nextAction, backAction: backAction)
             case .restoreMonero1SeedKeys:
                 AWRestoreMonero1SeedKeys(isPresented: $isPresented, nextAction: nextAction)
@@ -74,10 +114,11 @@ struct AddWalletMainView: View {
             Text(restoreError ?? "An unknown error occurred.")
         }
     }
-    
+
     func nextAction() {
-        
-        if currentWalletType == .moneroNew {
+
+        switch currentWalletType {
+        case .moneroNew:
             switch currentView {
             case .newMonero1Title:
                 if let earlyError = connectToWallet_New() {
@@ -103,8 +144,33 @@ struct AddWalletMainView: View {
             default:
                 break
             }
-        }
-        else if currentWalletType == .moneroRestore {
+        case .zcashNew:
+            switch currentView {
+            case .newZcash1Title:
+                if let earlyError = connectToWallet_NewZcash() {
+                    restoreError = earlyError
+                } else if let walletError = WalletManager.shared.activeWallet?.walletError {
+                    WalletManager.shared.removeActiveWallet()
+                    restoreError = walletError.userMessage
+                } else {
+                    currentView = .newZcash2SeedBackUp
+                }
+            case .newZcash2SeedBackUp:
+                if walletVM.newZcashWalletData.backedUp {
+                    if let activeWallet = WalletManager.shared.activeWallet {
+                        WalletManager.shared.clearPendingSeedBackup(for: activeWallet)
+                    }
+                    isPresented = false
+                }
+                else {
+                    currentView = .newZcash3BackUpLater
+                }
+            case .newZcash3BackUpLater:
+                isPresented = false
+            default:
+                break
+            }
+        case .moneroRestore:
             switch currentView {
             case .restoreMonero1SeedKeys:
                 currentView = .restoreMonero2Title
@@ -122,17 +188,24 @@ struct AddWalletMainView: View {
             }
         }
     }
-    
+
     func backAction() {
-        if currentWalletType == .moneroNew {
+        switch currentWalletType {
+        case .moneroNew:
             switch currentView {
             case .newMonero4BackUpLater:
                 currentView = .newMonero3SeedBackUp
             default:
                 break
             }
-        }
-        else if currentWalletType == .moneroRestore {
+        case .zcashNew:
+            switch currentView {
+            case .newZcash3BackUpLater:
+                currentView = .newZcash2SeedBackUp
+            default:
+                break
+            }
+        case .moneroRestore:
             switch currentView {
             case .restoreMonero2Title:
                 currentView = .restoreMonero1SeedKeys
@@ -141,7 +214,7 @@ struct AddWalletMainView: View {
             }
         }
     }
-    
+
     @discardableResult
     private func connectToWallet_Restore() -> String? {
 
@@ -192,7 +265,7 @@ struct AddWalletMainView: View {
         WalletManager.shared.addWallet(.monero(wallet, restoreHeight: restoreHeight), title: data.title ?? "", pendingSeedBackup: false)
         return nil
     }
-    
+
     @discardableResult
     private func connectToWallet_New() -> String? {
 
@@ -218,6 +291,20 @@ struct AddWalletMainView: View {
         }
 
         WalletManager.shared.addWallet(.monero(wallet, restoreHeight: nil), title: data.title ?? "")
+        return nil
+    }
+
+    @discardableResult
+    private func connectToWallet_NewZcash() -> String? {
+
+        let data = walletVM.newZcashWalletData
+
+        guard let mnemonic = try? Mnemonic.generate(wordCount: .twentyFour) else {
+            return "Failed to generate wallet seed. Please try again."
+        }
+        data.words = mnemonic
+
+        WalletManager.shared.addWallet(.zcashNew(mnemonic: mnemonic), title: data.title ?? "")
         return nil
     }
 }

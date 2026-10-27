@@ -7,12 +7,11 @@
 //
 
 import SwiftUI
-import CapsizedMoneroKit
 
 struct WalletSwitchSheet: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var walletManager: WalletManager
-    let xmrPrice: Double
+    let price: (Coin) -> Double
     let balanceVisible: Bool
     let onAddWallet: () -> Void
     let onRestoreWallet: () -> Void
@@ -138,7 +137,7 @@ struct WalletSwitchSheet: View {
                             }
                         }
                         if let cached, balanceVisible {
-                            Text("\(cached.formatted(style: .balance)) \(wallet.coin.ticker) · ≈ $\(String(format: "%.2f", cached.fiat(price: xmrPrice))) · all accounts")
+                            Text("\(cached.formatted(style: .balance)) \(wallet.coin.ticker) · ≈ $\(String(format: "%.2f", cached.fiat(price: price(wallet.coin)))) · all accounts")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color.dsTextTertiary)
                         } else if hasBalance {

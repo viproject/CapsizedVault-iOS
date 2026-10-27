@@ -47,7 +47,7 @@ struct WalletMainView: View {
     @State private var showingNodeSettings = false
     @State private var showingReceiveXMR = false
     @State private var showingSendXMR = false
-    @State private var selectedTransaction: TransactionInfo?
+    @State private var selectedTransactionHash: String?
     @State private var labelInput = ""
     @State private var showingWatchOnlySendAlert = false
 
@@ -71,10 +71,8 @@ struct WalletMainView: View {
 
     var body: some View {
         Group {
-            // TODO(phase 4): switch on activeWallet.kind once ZECWallet has its own main
-            // content, instead of only handling the Monero case.
-            if let activeWallet = walletManager.activeWallet?.moneroWallet {
-                mainContent(activeWallet)
+            if let wallet = walletManager.activeWallet {
+                mainContent(wallet)
             } else {
                 OnboardingView(
                     onCreateWallet: { showingAddWallet = true },
@@ -106,7 +104,7 @@ struct WalletMainView: View {
         }) {
             WalletSwitchSheet(
                 walletManager: walletManager,
-                xmrPrice: priceManager.price(for: .monero, in: .usd),
+                price: { priceManager.price(for: $0.coinId, in: .usd) },
                 balanceVisible: balanceVisible,
                 onAddWallet: { walletSheetPending = .addWallet },
                 onRestoreWallet: { walletSheetPending = .restoreWallet }
@@ -165,10 +163,30 @@ struct WalletMainView: View {
             AddWalletMainView(isPresented: $showingRestoreWallet, currentWalletType: .moneroRestore)
         }
         .fullScreenCover(isPresented: $showingBackupWallet) {
-            if let activeWallet = walletManager.activeWallet?.moneroWallet {
-                BackupWalletMainView(isPresented: $showingBackupWallet, activeWallet: activeWallet, onBackedUp: {
-                    walletManager.clearPendingSeedBackup(for: activeWallet)
-                })
+            if let activeWallet = walletManager.activeWallet {
+                switch activeWallet.kind {
+                case .monero(let moneroWallet):
+                    BackupWalletMainView(isPresented: $showingBackupWallet, activeWallet: moneroWallet, onBackedUp: {
+                        walletManager.clearPendingSeedBackup(for: activeWallet)
+                    })
+                case .zcash(let zecWallet):
+                    let words = KeychainHelper.zcashSeed(for: zecWallet.walletId)
+                        .flatMap { String(data: $0, encoding: .utf8) }?
+                        .components(separatedBy: " ") ?? []
+                    AWSeedBackUp(
+                        words: words,
+                        passphrase: nil,
+                        backedUp: Binding(
+                            get: { !activeWallet.pendingSeedBackup },
+                            set: { backedUp in
+                                if backedUp {
+                                    walletManager.clearPendingSeedBackup(for: activeWallet)
+                                }
+                            }
+                        ),
+                        nextAction: { showingBackupWallet = false }
+                    )
+                }
             }
         }
         .alert("Backup Required", isPresented: $showingBackupAlert) {
@@ -225,8 +243,13 @@ struct WalletMainView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
         }
-        .sheet(item: $selectedTransaction) { tx in
-            if let wallet = walletManager.activeWallet?.moneroWallet {
+        .sheet(isPresented: Binding(
+            get: { selectedTransactionHash != nil },
+            set: { if !$0 { selectedTransactionHash = nil } }
+        )) {
+            if let hash = selectedTransactionHash,
+               let wallet = walletManager.activeWallet?.moneroWallet,
+               let tx = wallet.moneroTransactions.first(where: { $0.hash == hash }) {
                 TransactionDetailsView(
                     transaction: tx,
                     wallet: wallet
@@ -251,9 +274,19 @@ struct WalletMainView: View {
 
     // MARK: - Main content
 
-    private func mainContent(_ wallet: XMRWallet) -> some View {
-        let xmrPrice = priceManager.price(for: .monero, in: .usd)
-        let hasPending = wallet.activeBalance.all != wallet.activeBalance.unlocked
+    private func mainContent(_ wallet: BaseWallet) -> some View {
+        let price = priceManager.price(for: wallet.coin.coinId, in: .usd)
+        let account = wallet.accounts.first(where: { $0.index == Int(wallet.activeAccountIndex) })
+            ?? WalletAccountBalance(
+                index: Int(wallet.activeAccountIndex),
+                label: "",
+                total: .zero(wallet.coin),
+                spendable: .zero(wallet.coin),
+                pending: .zero(wallet.coin),
+                transparent: nil
+            )
+        let hasPending = !account.pending.isZero
+        let moneroWallet = wallet.moneroWallet
 
         return ZStack {
             Color.dsBackground.ignoresSafeArea()
@@ -264,10 +297,12 @@ struct WalletMainView: View {
                     headerRow(wallet)
                         .padding(.bottom, 18)
 
-                    // 2. Account pill
-                    accountPill(wallet)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
+                    // 2. Account pill (Monero only — multi-account Zcash lands in phase 8)
+                    if let moneroWallet {
+                        accountPill(moneroWallet)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
+                    }
 
                     // 3. Backup banner (optional)
                     if wallet.pendingSeedBackup {
@@ -276,7 +311,7 @@ struct WalletMainView: View {
                     }
 
                     // 4. Balance card
-                    balanceCard(wallet, xmrPrice: xmrPrice, hasPending: hasPending)
+                    balanceCard(wallet, account: account, price: price, hasPending: hasPending)
                         .padding(.bottom, 8)
 
                     // 4a. View-only balance disclaimer
@@ -289,8 +324,8 @@ struct WalletMainView: View {
                     }
 
                     // 5. Exchange rate caption
-                    if xmrPrice > 0 {
-                        Text("1 XMR = \(String(format: "$%.2f", xmrPrice))")
+                    if price > 0 {
+                        Text("1 \(wallet.coin.ticker) = \(String(format: "$%.2f", price))")
                             .font(.dsCaption)
                             .foregroundStyle(Color.dsTextTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -323,7 +358,7 @@ struct WalletMainView: View {
                     .padding(.bottom, 12)
 
                     // 9. Transaction list or empty state
-                    transactionSection(wallet, xmrPrice: xmrPrice)
+                    transactionSection(wallet, price: price)
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 40)
@@ -334,7 +369,7 @@ struct WalletMainView: View {
     // MARK: - Header row
 
     @ViewBuilder
-    private func headerRow(_ wallet: XMRWallet) -> some View {
+    private func headerRow(_ wallet: BaseWallet) -> some View {
         HStack {
             // Wallet switcher button
             Button {
@@ -482,13 +517,13 @@ struct WalletMainView: View {
     // MARK: - Balance card
 
     @ViewBuilder
-    private func balanceCard(_ wallet: XMRWallet, xmrPrice: Double, hasPending: Bool) -> some View {
-        let unlockedPiconero = wallet.activeBalance.unlocked
-        let allPiconero = wallet.activeBalance.all
-        let lockedPiconero = allPiconero > unlockedPiconero ? allPiconero - unlockedPiconero : 0
-
-        let displayXMR = Double(hasPending ? unlockedPiconero : allPiconero) / 1_000_000_000_000
-        let displayUSD = displayXMR * xmrPrice
+    private func balanceCard(_ wallet: BaseWallet, account: WalletAccountBalance, price: Double, hasPending: Bool) -> some View {
+        let displayAmount = hasPending ? account.spendable : account.total
+        let displayValue = displayAmount.formatted(style: .balance)
+        let displayUSD = displayAmount.fiat(price: price)
+        let totalValue = account.total.formatted(style: .balance)
+        let lockedValue = account.pending.formatted(style: .balance)
+        let ticker = wallet.coin.ticker
 
         ZStack(alignment: .topLeading) {
             // Gradient background
@@ -538,10 +573,10 @@ struct WalletMainView: View {
 
                 // Main balance figure
                 HStack(alignment: .lastTextBaseline, spacing: 8) {
-                    Text(balanceVisible ? displayXMR.xmrFormattedBalance : "••••")
+                    Text(balanceVisible ? displayValue : "••••")
                         .font(.system(size: 34, weight: .bold).monospacedDigit())
                         .foregroundStyle(Color.white)
-                    Text("XMR")
+                    Text(ticker)
                         .font(.dsBodyLG)
                         .foregroundStyle(Color.white.opacity(0.8))
                 }
@@ -564,9 +599,7 @@ struct WalletMainView: View {
                             Text("Total balance")
                                 .font(.dsLabelMD)
                                 .foregroundStyle(Color.white.opacity(0.75))
-                            Text(balanceVisible
-                                 ? "\((Double(allPiconero) / 1_000_000_000_000).xmrFormattedBalance) XMR"
-                                 : "••••")
+                            Text(balanceVisible ? "\(totalValue) \(ticker)" : "••••")
                                 .font(.dsButtonLG.monospacedDigit())
                                 .foregroundStyle(Color.white)
                         }
@@ -582,9 +615,7 @@ struct WalletMainView: View {
                                     .font(.dsCaption)
                                     .foregroundStyle(Color.white.opacity(0.75))
                             }
-                            Text(balanceVisible
-                                 ? "\((Double(lockedPiconero) / 1_000_000_000_000).xmrFormattedBalance) XMR"
-                                 : "••••")
+                            Text(balanceVisible ? "\(lockedValue) \(ticker)" : "••••")
                                 .font(.dsBodySM.monospacedDigit())
                                 .foregroundStyle(Color(red: 0.941, green: 0.776, blue: 0.490))
                         }
@@ -602,16 +633,17 @@ struct WalletMainView: View {
     // MARK: - Quick actions
 
     @ViewBuilder
-    private func quickActionsRow(_ wallet: XMRWallet) -> some View {
+    private func quickActionsRow(_ wallet: BaseWallet) -> some View {
+        let canReceive = wallet.moneroWallet != nil
         HStack(spacing: 10) {
-            quickActionCell(label: "Send", icon: "arrow.up.right") {
+            quickActionCell(label: "Send", icon: "arrow.up.right", enabled: wallet.capabilities.canSend) {
                 if wallet.isWatchOnly {
                     showingWatchOnlySendAlert = true
                 } else {
                     showingSendXMR = true
                 }
             }
-            quickActionCell(label: "Receive", icon: "arrow.down.left") {
+            quickActionCell(label: "Receive", icon: "arrow.down.left", enabled: canReceive) {
                 showingReceiveXMR = true
             }
         }
@@ -623,7 +655,7 @@ struct WalletMainView: View {
     }
 
     @ViewBuilder
-    private func quickActionCell(label: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func quickActionCell(label: String, icon: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 6) {
                 ZStack {
@@ -649,12 +681,24 @@ struct WalletMainView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
     }
 
     // MARK: - Sync card
 
     @ViewBuilder
-    private func syncCard(_ wallet: XMRWallet) -> some View {
+    private func syncCard(_ wallet: BaseWallet) -> some View {
+        switch wallet.kind {
+        case .monero(let moneroWallet):
+            moneroSyncCard(moneroWallet)
+        case .zcash:
+            zcashSyncCard(wallet)
+        }
+    }
+
+    @ViewBuilder
+    private func moneroSyncCard(_ wallet: XMRWallet) -> some View {
         // walletError takes priority (initialization failure)
         if let error = wallet.walletError {
             syncCardContent(
@@ -712,6 +756,65 @@ struct WalletMainView: View {
                     detail: nil,
                     fg: Color.dsTextSecondary,
                     bg: Color.syncIdleSoft
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func zcashSyncCard(_ wallet: BaseWallet) -> some View {
+        if let error = wallet.walletError {
+            syncCardContent(
+                icon: "exclamationmark.triangle.fill",
+                label: "Wallet error",
+                detail: error.userMessage,
+                fg: Color.syncConnecting,
+                bg: Color.syncConnectingSoft,
+                action: { wallet.restartSync() }
+            )
+        } else {
+            switch wallet.syncStatus {
+            case .idle:
+                syncCardContent(
+                    icon: "shield.fill",
+                    label: "Idle",
+                    detail: nil,
+                    fg: Color.dsTextSecondary,
+                    bg: Color.syncIdleSoft
+                )
+            case .connecting:
+                syncCardContent(
+                    icon: "cable.connector",
+                    label: "Connecting",
+                    detail: nil,
+                    fg: Color.syncConnecting,
+                    bg: Color.syncConnectingSoft
+                )
+            case .syncing(let progress, let remaining):
+                let blockSuffix = remaining > 0 ? " · \(remaining) blocks remaining" : ""
+                syncCardContent(
+                    icon: "clock",
+                    label: "Syncing",
+                    detail: "\(progress)% synced\(blockSuffix)",
+                    fg: Color.syncSyncing,
+                    bg: Color.syncSyncingSoft
+                )
+            case .synced(let height):
+                syncCardContent(
+                    icon: "checkmark.circle.fill",
+                    label: "Synced",
+                    detail: height > 0 ? "Last block \(height)" : nil,
+                    fg: Color.dsAccentStrong,
+                    bg: Color.dsJadeSoft
+                )
+            case .error(let error):
+                syncCardContent(
+                    icon: "shield.fill",
+                    label: "Not synced",
+                    detail: error.userMessage,
+                    fg: Color.dsDanger,
+                    bg: Color.dsDangerSoft,
+                    action: { wallet.restartSync() }
                 )
             }
         }
@@ -778,9 +881,9 @@ struct WalletMainView: View {
     // MARK: - Transaction section
 
     @ViewBuilder
-    private func transactionSection(_ wallet: XMRWallet, xmrPrice: Double) -> some View {
-        let allTx = wallet.moneroTransactions
-        let accountTx = allTx.filter { $0.account == Int(wallet.activeAccountIndex) }
+    private func transactionSection(_ wallet: BaseWallet, price: Double) -> some View {
+        let accountTx = wallet.transactions.filter { $0.account == Int(wallet.activeAccountIndex) }
+        let isMonero = wallet.moneroWallet != nil
 
         if accountTx.isEmpty {
             // Empty state
@@ -791,7 +894,7 @@ struct WalletMainView: View {
                 Text("No transactions yet")
                     .font(.dsBodyMD)
                     .foregroundStyle(Color.dsTextTertiary)
-                Text("Receive Monero to get started")
+                Text("Receive \(wallet.coin.displayName) to get started")
                     .font(.dsBodySM)
                     .foregroundStyle(Color.dsTextTertiary.opacity(0.85))
             }
@@ -802,10 +905,14 @@ struct WalletMainView: View {
             VStack(spacing: 0) {
                 ForEach(Array(accountTx.enumerated()), id: \.element.hash) { idx, tx in
                     VStack(spacing: 0) {
-                        Button { selectedTransaction = tx } label: {
-                            transactionRow(tx, xmrPrice: xmrPrice)
+                        if isMonero {
+                            Button { selectedTransactionHash = tx.hash } label: {
+                                transactionRow(tx, price: price, coin: wallet.coin, showChevron: true)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            transactionRow(tx, price: price, coin: wallet.coin, showChevron: false)
                         }
-                        .buttonStyle(.plain)
 
                         if idx < accountTx.count - 1 {
                             Divider()
@@ -824,7 +931,7 @@ struct WalletMainView: View {
     }
 
     @ViewBuilder
-    private func transactionRow(_ tx: TransactionInfo, xmrPrice: Double) -> some View {
+    private func transactionRow(_ tx: WalletTransaction, price: Double, coin: Coin, showChevron: Bool) -> some View {
         if !balanceVisible {
             // Skeleton / privacy mode
             HStack(spacing: 12) {
@@ -852,8 +959,9 @@ struct WalletMainView: View {
             .contentShape(Rectangle())
         } else {
             let isIn = tx.type == .incoming
-            let xmrAmount = Double(abs(tx.amount)) / 1_000_000_000_000
-            let usdAmount = xmrAmount * xmrPrice
+            let amount = CoinAmount(atomic: abs(tx.amount.atomic), coin: coin)
+            let amountDisplay = amount.formatted(style: .balance)
+            let usdAmount = amount.fiat(price: price)
             let sign = isIn ? "+" : "−"
             let dateLabel = txDateLabel(tx.timestamp)
 
@@ -882,19 +990,21 @@ struct WalletMainView: View {
 
                 // Right amount
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(sign)\(xmrAmount.xmrFormattedBalance)")
+                    Text("\(sign)\(amountDisplay)")
                         .font(.dsBodyMD.monospacedDigit())
                         .foregroundStyle(isIn ? Color.dsAccentStrong : Color.dsTextPrimary)
-                    if xmrPrice > 0 {
+                    if price > 0 {
                         Text(String(format: "$%.2f", usdAmount))
                             .font(.dsCaption)
                             .foregroundStyle(Color.dsTextTertiary)
                     }
                 }
 
-                Image(systemName: "chevron.right")
-                    .font(.dsCaption)
-                    .foregroundStyle(Color.dsTextTertiary)
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsTextTertiary)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -1006,7 +1116,7 @@ private struct OnboardingView: View {
                 }
                 .padding(.top, 4)
                 .padding(.bottom, 32)
-                
+
                 Spacer()
 
                 Text("Private money,")

@@ -8,6 +8,13 @@ import Testing
 
 struct CoinAmountTests {
 
+    // MARK: - coinId
+
+    @Test func coinIdMapsToMatchingCoinPriceId() {
+        #expect(Coin.monero.coinId == .monero)
+        #expect(Coin.zcash.coinId == .zcash)
+    }
+
     // MARK: - formatted
 
     @Test func formattedFullUsesCoinDecimals() {
