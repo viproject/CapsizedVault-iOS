@@ -112,8 +112,8 @@ struct AccountSwitchSheet: View {
         let isSelected = Int(wallet.activeAccountIndex) == index
         let label = wallet.accountLabel(for: UInt32(index))
         let initial = String(label.prefix(1)).uppercased()
-        let balance: BalanceInfo = wallet.accountBalances.indices.contains(index)
-            ? wallet.accountBalances[index]
+        let balance: BalanceInfo = wallet.moneroAccountBalances.indices.contains(index)
+            ? wallet.moneroAccountBalances[index]
             : BalanceInfo(all: 0, unlocked: 0)
         let xmrAmount = Double(balance.unlocked) / 1_000_000_000_000
 

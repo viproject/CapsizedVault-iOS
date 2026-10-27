@@ -96,15 +96,14 @@ struct WalletSwitchSheet: View {
     }
 
     @ViewBuilder
-    private func walletRow(wallet: XMRWallet, isLast: Bool) -> some View {
+    private func walletRow(wallet: BaseWallet, isLast: Bool) -> some View {
         let isActive = wallet.walletId == walletManager.activeWallet?.walletId
         let initial = String(wallet.title.prefix(1)).uppercased()
 
         // Use the cached balance (persisted to Realm after each sync update).
-        // -1 means the wallet has never synced; show "–" in that case.
+        // nil means the wallet has never synced; show "–" in that case.
         let cached = wallet.cachedTotalUnlocked
-        let hasBalance = cached >= 0
-        let xmrTotal = hasBalance ? Double(cached) / 1_000_000_000_000 : 0
+        let hasBalance = cached != nil
 
         VStack(spacing: 0) {
             Button {
@@ -138,12 +137,12 @@ struct WalletSwitchSheet: View {
                                     .clipShape(Capsule())
                             }
                         }
-                        if hasBalance && balanceVisible {
-                            Text("\(xmrTotal.xmrFormattedBalance) XMR · ≈ $\(String(format: "%.2f", xmrTotal * xmrPrice)) · all accounts")
+                        if let cached, balanceVisible {
+                            Text("\(cached.formatted(style: .balance)) \(wallet.coin.ticker) · ≈ $\(String(format: "%.2f", cached.fiat(price: xmrPrice))) · all accounts")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color.dsTextTertiary)
                         } else if hasBalance {
-                            Text("•••• XMR · ≈ $•••• · all accounts")
+                            Text("•••• \(wallet.coin.ticker) · ≈ $•••• · all accounts")
                                 .font(.system(size: 13))
                                 .foregroundStyle(Color.dsTextTertiary)
                         } else {

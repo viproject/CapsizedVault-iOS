@@ -34,7 +34,7 @@ struct SendXMRView: View {
         CoinPriceManager.shared.price(for: .monero, in: .usd)
     }
     private var availableBalance: Double {
-        Double(walletManager.activeWallet?.activeBalance.unlocked ?? 0) / 1_000_000_000_000
+        Double(walletManager.activeWallet?.moneroWallet?.activeBalance.unlocked ?? 0) / 1_000_000_000_000
     }
     
     @FocusState private var isEnterAddressFocused: Bool
@@ -128,6 +128,12 @@ struct SendXMRView: View {
             }
         }
         .interactiveDismissDisabled()
+        .task(id: FeeEstimateKey(address: receiverAddress, amount: amountString, priority: transactionPriority)) {
+            // Debounce: rapid edits cancel the pending sleep before it fires another Kit call.
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            await refreshEstimatedFee()
+        }
         .sheet(isPresented: $showingScanner) {
             QRScannerContainerView { scannedValue in
                 var address = scannedValue
@@ -316,8 +322,24 @@ struct SendXMRView: View {
         Double(amountString) ?? 0
     }
     
-    private var estimatedFeeDouble: Double {
-        walletManager.activeWallet?.estimateFeeDouble(address: receiverAddress, amount: amountDouble, priority: transactionPriority) ?? 0
+    /// Updated by the debounced `.task(id:)` below — the Kit call it wraps is async and
+    /// runs off the main actor, so it can no longer be a plain computed property re-evaluated
+    /// on every render.
+    @State private var estimatedFeeDouble: Double = 0
+
+    private struct FeeEstimateKey: Equatable {
+        let address: String
+        let amount: String
+        let priority: XMRWallet.XMRSendPriority
+    }
+
+    private func refreshEstimatedFee() async {
+        guard !receiverAddress.isEmpty, isValidAddress,
+              let wallet = walletManager.activeWallet?.moneroWallet else {
+            estimatedFeeDouble = 0
+            return
+        }
+        estimatedFeeDouble = await wallet.estimateFeeDouble(address: receiverAddress, amount: amountDouble, priority: transactionPriority)
     }
     
     private var estimatedFeeString: String {

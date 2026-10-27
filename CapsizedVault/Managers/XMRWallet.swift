@@ -11,11 +11,11 @@ import Security
 import CapsizedMoneroKit
 import HsToolKit
 
-class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identifiable {
-    
-    enum XMRSendPriority: Int, CaseIterable {
+class XMRWallet: BaseWallet, CapsizedMoneroKitDelegate, Equatable {
+
+    nonisolated enum XMRSendPriority: Int, CaseIterable, Sendable {
         case `default`, low, medium, high
-        
+
         var sendPriority: CapsizedMoneroKit.SendPriority {
             switch self {
             case .default:
@@ -28,7 +28,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
                 return .high
             }
         }
-        
+
         var description: String {
             switch self {
             case .default:
@@ -42,26 +42,23 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             }
         }
     }
-        
-    @Published var transactions: [TransactionInfo] = []
+
+    /// Monero-native transaction list, straight from the Kit. Read by the views that stay
+    /// Monero-specific (`WalletMainView`'s transaction section, `TransactionDetailsView`).
+    /// Distinct from the inherited, coin-neutral `transactions`, which this class also keeps
+    /// populated for future shared-view use (see `transactionsUpdated(inserted:updated:)`).
+    @Published var moneroTransactions: [TransactionInfo] = []
     @Published var walletState: WalletState = .notSynced(error: .notStarted)
     @Published var isConnected: Bool = false
-    @Published var activeAccountIndex: UInt32 = 0
-    @Published var accountBalances: [BalanceInfo] = []
-    /// Last persisted total unlocked balance in piconero (sum across all accounts).
-    /// -1 until the wallet has synced at least once.
-    @Published var cachedTotalUnlocked: Int64 = -1
-    @Published var pendingSeedBackup: Bool = false
-    @Published private(set) var isWatchOnly: Bool = false
-    @Published var walletError: String?
+    /// Monero-native per-account balances, straight from the Kit. Read by the views that stay
+    /// Monero-specific (`AccountSwitchSheet`). Distinct from the inherited `accounts`.
+    @Published var moneroAccountBalances: [BalanceInfo] = []
     @Published var activeNodeURL: String = ""
     @Published var nodeSwitchError: String?
     /// URL of the node a switch is currently in flight for, so the UI can show a
     /// pending/spinner state instead of appearing frozen during the reconnect.
     @Published var pendingNodeURL: String?
 
-    @Published var title: String = ""
-    var walletId: String = ""
     var isSynchronized: Bool {
         if case .synced = walletState {
             return true
@@ -115,12 +112,12 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
     var walletPath: String? {
         return moneroKit?.walletPath
     }
-    
+
     var activeBalance: BalanceInfo {
-        guard accountBalances.indices.contains(Int(activeAccountIndex)) else { return BalanceInfo(all: 0, unlocked: 0) }
-        return accountBalances[Int(activeAccountIndex)]
+        guard moneroAccountBalances.indices.contains(Int(activeAccountIndex)) else { return BalanceInfo(all: 0, unlocked: 0) }
+        return moneroAccountBalances[Int(activeAccountIndex)]
     }
-    
+
     var activeSubaddresses: [(String, Int, Int, String)] {
         let subaddresses = moneroKit?.getSubaddresses(forAccount: activeAccountIndex).sorted { $0.1 > $1.1 } ?? []
         return subaddresses.map { (address, index, txCount) in
@@ -128,7 +125,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             return (address, index, txCount, label)
         }
     }
-    
+
     /// Runs a manual node-latency test and reports each result as it arrives. Results are
     /// isolated from the periodic background probe and the sync heartbeat (see
     /// `NodePool.onManualProbeResult`). Returns the current node list so the caller can seed
@@ -159,8 +156,8 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
     /// Call after any custom node is added, edited, or removed so the change takes
     /// effect immediately instead of only on the next wallet reconnect.
     func syncNodePool() {
-        moneroKit?.nodePool.autoSelectableURLs = Set(WalletManager.defaultNodes.map(\.url))
-        moneroKit?.nodePool.updateNodes(WalletManager.allNodes())
+        moneroKit?.nodePool.autoSelectableURLs = Set(NodeStore.defaults(for: .monero).map(\.url))
+        moneroKit?.nodePool.updateNodes(NodeStore.all(for: .monero))
     }
 
     /// Best-scoring node currently eligible for automatic selection (i.e. a default node) —
@@ -183,87 +180,112 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
     private var lastWallet: MoneroWallet?
     private var lastRestoreHeight: UInt64?
     private var lastIsNewWallet: Bool = false
-    
+
     init(fromRealm realmObj: WalletsData) {
+        super.init(coin: .monero)
         self.title = realmObj.title
         self.walletId = realmObj.walletId
         self.activeAccountIndex = UInt32(realmObj.lastUsedAccount)
         self.pendingSeedBackup = realmObj.pendingSeedBackup
-        self.cachedTotalUnlocked = realmObj.cachedTotalUnlockedPiconero
+        let piconero = realmObj.cachedTotalUnlockedPiconero
+        self.cachedTotalUnlocked = piconero >= 0 ? CoinAmount(atomic: piconero, coin: .monero) : nil
 
-        //on app launch
-        let wallet: MoneroWallet = .polyseed(seed: [], passphrase: "")
-        connectToWallet(wallet)
+        // Engine connection is deferred to activate() — see BaseWallet's "lightweight until
+        // activated" design. Stash what connectToWallet needs for when that happens.
+        lastWallet = .polyseed(seed: [], passphrase: "")
+        lastRestoreHeight = nil
+        lastIsNewWallet = false
     }
-    
+
     init(fromNewMoneroWallet newWallet: MoneroWallet, title: String, pendingSeedBackup: Bool = true, restoreHeight: UInt64? = nil) {
+        super.init(coin: .monero)
         self.title = title
         self.walletId = UUID().uuidString
         self.activeAccountIndex = 0
         self.pendingSeedBackup = pendingSeedBackup
 
-        connectToWallet(newWallet, restoreHeight: restoreHeight, isNewWallet: true)
+        lastWallet = newWallet
+        lastRestoreHeight = restoreHeight
+        lastIsNewWallet = true
     }
-    
+
     func update(fromRealm realmObj: WalletsData) {
         self.title = realmObj.title
         self.walletId = realmObj.walletId
         self.activeAccountIndex = UInt32(realmObj.lastUsedAccount)
     }
-    
-    
-    func startSync() {
-        moneroKit?.start()
-    }
-    
-    func stopSync() {
-        moneroKit?.stop()
+
+    override var kind: WalletKind { .monero(self) }
+
+    override var capabilities: WalletCapabilities {
+        WalletCapabilities(
+            supportsSubaddresses: true,
+            hasTransparentPool: false,
+            supportsShielding: false,
+            accountCreation: .derive,
+            supportsMemo: true,
+            supportsSendPriority: true,
+            canSend: !isWatchOnly
+        )
     }
 
-    func restartSync() {
+    override func activate() {
+        if moneroKit != nil {
+            moneroKit?.start()
+            return
+        }
+        guard let wallet = lastWallet else { return }
+        connectToWallet(wallet, restoreHeight: lastRestoreHeight, isNewWallet: lastIsNewWallet)
+        moneroKit?.start()
+    }
+
+    override func deactivate() {
+        moneroKit?.stop()
+        moneroKit = nil
+        isConnected = false
+    }
+
+    override func restartSync() {
         if walletError != nil {
             walletError = nil
-            if let wallet = lastWallet {
-                connectToWallet(wallet, restoreHeight: lastRestoreHeight, isNewWallet: lastIsNewWallet)
-                startSync()
-            }
+            activate()
         } else {
             moneroKit?.restart()
         }
     }
 
-    func accountLabel(for index: UInt32) -> String {
+    override func accountLabel(for index: UInt32) -> String {
         // Try the live C++ wallet first (available once sync has started)
         let liveLabel = moneroKit?.accountLabel(for: index)
         if let liveLabel, !liveLabel.isEmpty { return liveLabel }
         // Fall back to the label persisted in the last balance update (available
         // immediately via preloadCachedData, even during connecting state)
-        if accountBalances.indices.contains(Int(index)) {
-            let cached = accountBalances[Int(index)].label
+        if moneroAccountBalances.indices.contains(Int(index)) {
+            let cached = moneroAccountBalances[Int(index)].label
             if !cached.isEmpty { return cached }
         }
         return index == 0 ? "Primary account" : "Account \(index)"
     }
-    
-    func numberOfAccounts() -> Int {
+
+    override func numberOfAccounts() -> Int {
         return moneroKit?.numberOfAccounts() ?? 1
     }
-    
-    func setActiveAccountIndex(_ accountIndex: Int) {
+
+    override func setActiveAccountIndex(_ accountIndex: Int) {
         activeAccountIndex = UInt32(accountIndex)
         _ = RealmManager.shared.setActiveAccount(walletId: walletId, accountIndex: accountIndex)
     }
-    
-    func setAccountLabel(accountIndex: UInt32, label: String) {
+
+    override func setAccountLabel(accountIndex: UInt32, label: String) {
         moneroKit?.setAccountLabel(accountIndex: accountIndex, label: label)
         objectWillChange.send()
     }
 
-    func addNewAccount(label: String) {
+    override func addNewAccount(label: String) {
         moneroKit?.addNewAccount(label: label)
         setActiveAccountIndex(numberOfAccounts() - 1)
     }
-    
+
     @discardableResult
     func addNewSubaddress(label: String = "") -> String? {
         moneroKit?.addNewSubaddress(accountIndex: activeAccountIndex, label: label)
@@ -273,20 +295,38 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
         moneroKit?.setSubaddressLabel(accountIndex: activeAccountIndex, addressIndex: UInt32(addressIndex), label: label)
         objectWillChange.send()
     }
-    
-    func estimateFeeDouble(address: String, amount: Double, priority: XMRSendPriority) -> Double {
-        do {
-            let picoAmount = amount * 1_000_000_000_000
-            guard picoAmount > 0, picoAmount < Double(Int.max) else { return 0 }
-            let fee = try moneroKit?.estimateFee(address: address, amount: .value(Int(picoAmount)), priority: priority.sendPriority) ?? 0
-            let value = Double(fee) / 1_000_000_000_000
-            return value
-        }
-        catch {
-            return 0
-        }
+
+    /// Estimates the fee for a Monero-priority-aware send. Runs the Kit call off the main
+    /// actor so `SendXMRView` can call it from a debounced `.task(id:)` instead of blocking
+    /// the UI thread on every render.
+    func estimateFeeDouble(address: String, amount: Double, priority: XMRSendPriority) async -> Double {
+        let kit = moneroKit
+        return await Task.detached(priority: .userInitiated) {
+            do {
+                let picoAmount = amount * 1_000_000_000_000
+                guard picoAmount > 0, picoAmount < Double(Int.max) else { return 0 }
+                let fee = try kit?.estimateFee(address: address, amount: .value(Int(picoAmount)), priority: priority.sendPriority) ?? 0
+                return Double(fee) / 1_000_000_000_000
+            }
+            catch {
+                return 0
+            }
+        }.value
     }
-    
+
+    override func estimateFee(to address: String, amount: CoinAmount) async -> Result<CoinAmount, WalletError> {
+        let kit = moneroKit
+        return await Task.detached(priority: .userInitiated) {
+            do {
+                guard amount.atomic > 0, amount.atomic < Int64(Int.max) else { return .success(.zero(.monero)) }
+                let fee = try kit?.estimateFee(address: address, amount: .value(Int(amount.atomic)), priority: .default) ?? 0
+                return .success(CoinAmount(atomic: Int64(fee), coin: .monero))
+            } catch {
+                return .failure(.unknown(error.localizedDescription))
+            }
+        }.value
+    }
+
     private func resolveWalletPassword() -> String {
         if let stored = KeychainHelper.walletPassword(for: walletId) {
             return stored
@@ -304,7 +344,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
         lastRestoreHeight = restoreHeight
         lastIsNewWallet = isNewWallet
 
-        var nodes = WalletManager.allNodes()
+        var nodes = NodeStore.all(for: .monero)
         guard !nodes.isEmpty else { return }
 
         // NodePool.init always makes nodes[0] the active node, so putting the user's
@@ -338,7 +378,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
 //                logger: nil,
 //                moneroCoreLogLevel: coreLogLevel
 //            )
-            
+
             let kit = try Kit(
                 wallet: moneroWallet,
                 restoreHeight: height,
@@ -351,22 +391,22 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
                 logger: nil,
                 moneroCoreLogLevel: coreLogLevel,
                 nodeRotationMode: .adaptive)
-              
+
 
             kit.delegate = self
             kit.isAutoNodeSelectionEnabled = autoSelect
-            kit.nodePool.autoSelectableURLs = Set(WalletManager.defaultNodes.map(\.url))
+            kit.nodePool.autoSelectableURLs = Set(NodeStore.defaults(for: .monero).map(\.url))
             kit.preloadCachedData()
             moneroKit = kit
             isConnected = true
-            isWatchOnly = kit.isWatchOnly
+            setWatchOnly(kit.isWatchOnly)
             activeNodeURL = kit.activeNodeDescription
         } catch MoneroCoreError.walletFilesMissing {
-            walletError = "Wallet files are missing or corrupted. Please restore the wallet from seed, keys, or a view key."
+            walletError = .walletFilesMissing
         } catch MoneroCoreError.walletRecoveryFailed(let message) {
-            walletError = "Wallet recovery failed: \(message)"
+            walletError = .recoveryFailed(message)
         } catch {
-            walletError = "Failed to initialize wallet: \(error.localizedDescription)"
+            walletError = .unknown("Failed to initialize wallet: \(error.localizedDescription)")
         }
     }
 
@@ -379,7 +419,7 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             case .notSynced(let error): return "Not Synced: \(error)"
         }
     }
-    
+
     func send(to address: String, amount: Double, sendAll: Bool = false, priority: SendPriority = .default, memo: String?) async -> Result<Bool, Error> {
         let kit = moneroKit
         let account = activeAccountIndex
@@ -397,29 +437,88 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             }
         }.value
     }
-    
+
+    override func send(to address: String, amount: CoinAmount, memo: String?) async -> Result<Bool, WalletError> {
+        let result = await send(to: address, amount: Double(amount.atomic) / 1_000_000_000_000, memo: memo)
+        switch result {
+        case .success(let value):
+            return .success(value)
+        case .failure(let error):
+            return .failure(.unknown(error.localizedDescription))
+        }
+    }
+
+    override func removeFiles() {
+        if let walletPath {
+            Kit.removeWallet(path: walletPath)
+        }
+        KeychainHelper.deleteWalletPassword(for: walletId)
+    }
+
+    override func isValidAddress(_ address: String) -> Bool {
+        Kit.isValid(address: address, networkType: .mainnet)
+    }
+
     //MARK: - CapsizedMoneroKitDelegate
-    
+
     func balancesDidChange(balanceInfos: [CapsizedMoneroKit.BalanceInfo]) {
         let total = balanceInfos.reduce(Int64(0)) { $0 + $1.unlocked }
         DispatchQueue.main.async {
-            self.accountBalances = balanceInfos
-            self.cachedTotalUnlocked = total
+            self.moneroAccountBalances = balanceInfos
+            self.accounts = balanceInfos.enumerated().map { index, info in
+                WalletAccountBalance(
+                    index: index,
+                    label: info.label,
+                    total: CoinAmount(atomic: info.all, coin: .monero),
+                    spendable: CoinAmount(atomic: info.unlocked, coin: .monero),
+                    pending: CoinAmount(atomic: info.all - info.unlocked, coin: .monero),
+                    transparent: nil
+                )
+            }
+            self.cachedTotalUnlocked = CoinAmount(atomic: total, coin: .monero)
             _ = RealmManager.shared.updateCachedBalance(walletId: self.walletId, totalUnlocked: total)
         }
     }
-    
+
     func subAddressesUpdated(subaddresses: [CapsizedMoneroKit.SubAddress]) {}
 
     func transactionsUpdated(inserted: [CapsizedMoneroKit.TransactionInfo], updated: [CapsizedMoneroKit.TransactionInfo]) {
         DispatchQueue.main.async {
-            self.transactions = inserted + updated
+            let all = inserted + updated
+            self.moneroTransactions = all
+            self.transactions = all.map { tx in
+                WalletTransaction(
+                    hash: tx.hash,
+                    type: tx.type == .incoming ? .incoming : .outgoing,
+                    amount: CoinAmount(atomic: tx.amount, coin: .monero),
+                    fee: CoinAmount(atomic: Int64(tx.fee), coin: .monero),
+                    timestamp: tx.timestamp,
+                    blockHeight: tx.blockHeight,
+                    isPending: tx.isPending,
+                    isFailed: tx.isFailed,
+                    memo: tx.memo,
+                    recipient: tx.recipientAddress,
+                    account: tx.account
+                )
+            }
         }
     }
-    
+
     func walletStateDidChange(state: CapsizedMoneroKit.WalletState) {
         DispatchQueue.main.async {
             self.walletState = state
+            switch state {
+            case .connecting:
+                self.syncStatus = .connecting
+            case .syncing(let progress, let remaining):
+                self.syncStatus = .syncing(progress: progress, remaining: remaining)
+            case .synced(let height):
+                self.syncStatus = .synced(height: height)
+            case .notSynced(let error):
+                self.syncStatus = .error(.unknown(error.description))
+            case .idle:
+                self.syncStatus = .idle
+            }
         }
     }
 
@@ -428,12 +527,12 @@ class XMRWallet: ObservableObject, CapsizedMoneroKitDelegate, Equatable, Identif
             self.activeNodeURL = node.url.absoluteString
         }
     }
-    
+
     //MARK: - Equatable
-    
+
     static func == (lhs: XMRWallet, rhs: XMRWallet) -> Bool {
         return lhs.walletId == rhs.walletId
     }
-    
-    
+
+
 }

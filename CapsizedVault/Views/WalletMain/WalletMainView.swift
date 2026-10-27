@@ -71,7 +71,9 @@ struct WalletMainView: View {
 
     var body: some View {
         Group {
-            if let activeWallet = walletManager.activeWallet {
+            // TODO(phase 4): switch on activeWallet.kind once ZECWallet has its own main
+            // content, instead of only handling the Monero case.
+            if let activeWallet = walletManager.activeWallet?.moneroWallet {
                 mainContent(activeWallet)
             } else {
                 OnboardingView(
@@ -82,7 +84,7 @@ struct WalletMainView: View {
         }
         // --- Bottom sheets (native) ---
         .sheet(isPresented: $showingAccountSheet) {
-            if let wallet = walletManager.activeWallet {
+            if let wallet = walletManager.activeWallet?.moneroWallet {
                 AccountSwitchSheet(
                     wallet: wallet,
                     xmrPrice: priceManager.price(for: .monero, in: .usd),
@@ -163,7 +165,7 @@ struct WalletMainView: View {
             AddWalletMainView(isPresented: $showingRestoreWallet, currentWalletType: .moneroRestore)
         }
         .fullScreenCover(isPresented: $showingBackupWallet) {
-            if let activeWallet = walletManager.activeWallet {
+            if let activeWallet = walletManager.activeWallet?.moneroWallet {
                 BackupWalletMainView(isPresented: $showingBackupWallet, activeWallet: activeWallet, onBackedUp: {
                     walletManager.clearPendingSeedBackup(for: activeWallet)
                 })
@@ -224,13 +226,15 @@ struct WalletMainView: View {
                 .presentationCornerRadius(20)
         }
         .sheet(item: $selectedTransaction) { tx in
-            TransactionDetailsView(
-                transaction: tx,
-                wallet: walletManager.activeWallet!
-            )
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(20)
+            if let wallet = walletManager.activeWallet?.moneroWallet {
+                TransactionDetailsView(
+                    transaction: tx,
+                    wallet: wallet
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(20)
+            }
         }
         .onChange(of: scenePhase) { phase in
             if (phase == .background || phase == .inactive) && authManager.isAmountHiddenEnabled {
@@ -656,7 +660,7 @@ struct WalletMainView: View {
             syncCardContent(
                 icon: "exclamationmark.triangle.fill",
                 label: "Wallet error",
-                detail: error,
+                detail: error.userMessage,
                 fg: Color.syncConnecting,
                 bg: Color.syncConnectingSoft,
                 action: { wallet.restartSync() }
@@ -775,7 +779,7 @@ struct WalletMainView: View {
 
     @ViewBuilder
     private func transactionSection(_ wallet: XMRWallet, xmrPrice: Double) -> some View {
-        let allTx = wallet.transactions
+        let allTx = wallet.moneroTransactions
         let accountTx = allTx.filter { $0.account == Int(wallet.activeAccountIndex) }
 
         if accountTx.isEmpty {

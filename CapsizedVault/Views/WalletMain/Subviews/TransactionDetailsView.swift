@@ -20,7 +20,7 @@ struct TransactionDetailsView: View {
 
     /// Always reflects the latest data from CapsizedMoneroKit (confirmations, pending state, etc.)
     private var liveTransaction: TransactionInfo {
-        wallet.transactions.first(where: { $0.hash == transaction.hash }) ?? transaction
+        wallet.moneroTransactions.first(where: { $0.hash == transaction.hash }) ?? transaction
     }
 
     private var isIn: Bool { liveTransaction.type == .incoming }

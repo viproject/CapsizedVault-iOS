@@ -13,7 +13,7 @@ struct ReceiveXMRView: View {
     @StateObject private var walletManager = WalletManager.shared
     @StateObject private var priceManager = CoinPriceManager.shared
     @AppStorage("balanceVisible") private var balanceVisible = true
-    @State private var selectedSubaddress = WalletManager.shared.activeWallet?.activeSubaddresses.first?.0 ?? ""
+    @State private var selectedSubaddress = WalletManager.shared.activeWallet?.moneroWallet?.activeSubaddresses.first?.0 ?? ""
     @State private var showingShareOptions = false
     @State private var showingAccountSheet = false
     @State private var shareContent: ShareableContent?
@@ -38,7 +38,7 @@ struct ReceiveXMRView: View {
     }
 
     private var activeAddressLabel: String {
-        guard let subaddresses = walletManager.activeWallet?.activeSubaddresses else { return "" }
+        guard let subaddresses = walletManager.activeWallet?.moneroWallet?.activeSubaddresses else { return "" }
         if let match = subaddresses.first(where: { $0.0 == selectedSubaddress }) {
             if match.1 == 0 { return "#0 PRIMARY ACCOUNT" }
             return match.3.isEmpty
@@ -108,7 +108,7 @@ struct ReceiveXMRView: View {
                         .padding(.top, 20)
 
                     // Account switcher
-                    if let activeWallet = walletManager.activeWallet {
+                    if let activeWallet = walletManager.activeWallet?.moneroWallet {
                         accountSwitcherButton(activeWallet)
                             .padding(.top, 20)
                     }
@@ -138,7 +138,7 @@ struct ReceiveXMRView: View {
 
                     // Subaddress list
                     VStack(spacing: 10) {
-                        if let subaddresses = walletManager.activeWallet?.activeSubaddresses {
+                        if let subaddresses = walletManager.activeWallet?.moneroWallet?.activeSubaddresses {
                             ForEach(subaddresses.indices, id: \.self) { i in
                                 let addr = subaddresses[i]
                                 let labelStr = addr.1 == 0
@@ -257,7 +257,7 @@ struct ReceiveXMRView: View {
         .sheet(isPresented: $showingEditLabel) {
             EditSubaddressLabelSheet(label: $editLabelText) {
                 if let index = editingSubaddressIndex {
-                    walletManager.activeWallet?.setSubaddressLabel(addressIndex: index, label: editLabelText)
+                    walletManager.activeWallet?.moneroWallet?.setSubaddressLabel(addressIndex: index, label: editLabelText)
                 }
                 showingEditLabel = false
             }
@@ -267,7 +267,7 @@ struct ReceiveXMRView: View {
             expandedQROverlay
         }
         .sheet(isPresented: $showingAccountSheet) {
-            if let wallet = walletManager.activeWallet {
+            if let wallet = walletManager.activeWallet?.moneroWallet {
                 AccountSwitchSheet(
                     wallet: wallet,
                     xmrPrice: priceManager.price(for: .monero, in: .usd),
@@ -278,10 +278,10 @@ struct ReceiveXMRView: View {
                 .presentationCornerRadius(28)
             }
         }
-        .onChange(of: walletManager.activeWallet?.activeAccountIndex) { _ in
+        .onChange(of: walletManager.activeWallet?.moneroWallet?.activeAccountIndex) { _ in
             newestSubaddressAddress = nil
             generateSubaddressIfNeeded()
-            selectedSubaddress = walletManager.activeWallet?.activeSubaddresses.first?.0 ?? ""
+            selectedSubaddress = walletManager.activeWallet?.moneroWallet?.activeSubaddresses.first?.0 ?? ""
         }
         .onAppear {
             generateSubaddressIfNeeded()
@@ -413,14 +413,14 @@ struct ReceiveXMRView: View {
     // MARK: - Helpers
 
     private func generateSubaddress(label: String) {
-        if let address = walletManager.activeWallet?.addNewSubaddress(label: label) {
+        if let address = walletManager.activeWallet?.moneroWallet?.addNewSubaddress(label: label) {
             selectedSubaddress = address
             newestSubaddressAddress = address
         }
     }
 
     private func generateSubaddressIfNeeded() {
-        guard let wallet = walletManager.activeWallet else { return }
+        guard let wallet = walletManager.activeWallet?.moneroWallet else { return }
         let subaddresses = wallet.activeSubaddresses
         if let lastSubaddress = subaddresses.first, lastSubaddress.2 > 0 {
             if let address = wallet.addNewSubaddress(label: "generated") {

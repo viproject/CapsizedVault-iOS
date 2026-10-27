@@ -12,121 +12,80 @@ import Realm
 import SwiftUI
 import CapsizedMoneroKit
 
+/// Owns the wallet list and which wallet is active. Node/server lists live on `NodeStore`,
+/// and building wallet instances lives on `WalletFactory` — this class no longer knows how
+/// to construct an engine itself.
 class WalletManager: ObservableObject {
-    
+
     static let shared = WalletManager()
-    
+
     private init() {
-        
+
         guard let realm = RealmManager.shared.getThreadSaveRealm() else {
             return
         }
-        
+
         let results = realm.objects(WalletsData.self).sorted(byKeyPath: "createdAt", ascending: false)
-        wallets = results.map({XMRWallet(fromRealm: $0)})
-        
+        wallets = results.map { WalletFactory.make(from: $0) }
+
         if let foundActiveWallet = findActiveWallet() {
             setActiveWallet(foundActiveWallet)
         }
-        
-        
-    }
-    
-    @Published var wallets: [XMRWallet] = []
 
-    @Published var activeWallet: XMRWallet? {
+
+    }
+
+    @Published var wallets: [BaseWallet] = []
+
+    @Published var activeWallet: BaseWallet? {
         didSet {
             // Cancel previous observation
             activeWalletCancellable?.cancel()
-            
+
             // Observe new active wallet
             activeWalletCancellable = activeWallet?.objectWillChange.sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
         }
     }
-    
+
     private var activeWalletCancellable: AnyCancellable?
-    
-    static let defaultNodes: [Node] = [
-        Node(url: URL(string: "https://xmr-node.cakewallet.com:18081")!, isTrusted: false),
-        Node(url: URL(string: "https://node.monerodevs.org:18089")!, isTrusted: false),
-        Node(url: URL(string: "https://nodes.hashvault.pro:18081")!, isTrusted: false),
-        Node(url: URL(string: "https://monero.stackwallet.com:18081")!, isTrusted: false),
-        Node(url: URL(string: "https://node.xmr.rocks:18089")!, isTrusted: false),
-        Node(url: URL(string: "https://xmr-de.boldsuck.org:18081")!, isTrusted: false),
-    ]
 
-    static func allNodes() -> [Node] {
-        let customNodes = RealmManager.shared.getCustomNodes().compactMap { nodeData -> Node? in
-            guard let url = URL(string: nodeData.urlString) else { return nil }
-            let credentials = nodeData.credentials
-            return Node(
-                url: url,
-                isTrusted: nodeData.isTrusted,
-                login: credentials.login.isEmpty ? nil : credentials.login,
-                password: credentials.password.isEmpty ? nil : credentials.password
-            )
-        }
-        let defaultURLs = Set(defaultNodes.map(\.url))
-        let uniqueCustom = customNodes.filter { !defaultURLs.contains($0.url) }
-        return defaultNodes + uniqueCustom
-    }
-
-    static func getCustomNodes() -> [NodeData] {
-        RealmManager.shared.getCustomNodes()
-    }
-
-    @discardableResult
-    static func addCustomNode(urlString: String, isTrusted: Bool, login: String, password: String) -> Bool {
-        RealmManager.shared.addCustomNode(urlString: urlString, isTrusted: isTrusted, login: login, password: password)
-    }
-
-    @discardableResult
-    static func updateCustomNode(oldURLString: String, newURLString: String, isTrusted: Bool, login: String, password: String) -> Bool {
-        RealmManager.shared.updateCustomNode(oldURLString: oldURLString, newURLString: newURLString, isTrusted: isTrusted, login: login, password: password)
-    }
-
-    @discardableResult
-    static func removeCustomNode(urlString: String) -> Bool {
-        RealmManager.shared.removeCustomNode(urlString: urlString)
-    }
-
-    func setActiveWallet(_ wallet: XMRWallet) {
-        guard wallets.contains(wallet) else {
+    func setActiveWallet(_ wallet: BaseWallet) {
+        guard wallets.contains(where: { $0.walletId == wallet.walletId }) else {
             return
         }
-        
+
         if let activeWallet = activeWallet {
-            activeWallet.stopSync()
+            activeWallet.deactivate()
         }
-        
+
         activeWallet = wallet
-        activeWallet?.startSync()
-        
+        activeWallet?.activate()
+
         _ = RealmManager.shared.setActiveWallet(walletId: wallet.walletId)
     }
-    
+
     func updateActiveWalletTitle(_ newTitle: String) {
         guard let activeWallet else {
             return
         }
-        
+
         activeWallet.title = newTitle
-        
+
         _ = RealmManager.shared.updateWalletTitle(walletId: activeWallet.walletId, newTitle: newTitle)
     }
-    
-    func addNewMoneroWallet(title: String, moneroWallet: MoneroWallet, pendingSeedBackup: Bool = true, restoreHeight: UInt64? = nil) {
-        let newWallet = XMRWallet(fromNewMoneroWallet: moneroWallet, title: title, pendingSeedBackup: pendingSeedBackup, restoreHeight: restoreHeight)
+
+    func addWallet(_ request: NewWalletRequest, title: String, pendingSeedBackup: Bool = true) {
+        let newWallet = WalletFactory.make(from: request, title: title, pendingSeedBackup: pendingSeedBackup)
         wallets.insert(newWallet, at: 0)
 
         _ = RealmManager.shared.saveNewWallet(title: title, walletId: newWallet.walletId, pendingSeedBackup: pendingSeedBackup)
 
         setActiveWallet(newWallet)
     }
-    
-    func clearPendingSeedBackup(for wallet: XMRWallet) {
+
+    func clearPendingSeedBackup(for wallet: BaseWallet) {
         wallet.pendingSeedBackup = false
         _ = RealmManager.shared.clearPendingSeedBackup(walletId: wallet.walletId)
     }
@@ -135,31 +94,28 @@ class WalletManager: ObservableObject {
         guard let activeWallet else {
             return
         }
-        
-        let walletPath = activeWallet.walletPath
-        let walletId = activeWallet.walletId
-        activeWallet.stopSync()
-        self.activeWallet = nil
-        
-        if let walletPath {
-            Kit.removeWallet(path: walletPath)
-        }
 
-        KeychainHelper.deleteWalletPassword(for: walletId)
+        let walletId = activeWallet.walletId
+        // removeFiles() first — it needs the still-live engine (e.g. XMRWallet.walletPath
+        // comes from the Kit) to know what to delete.
+        activeWallet.removeFiles()
+        activeWallet.deactivate()
+        self.activeWallet = nil
+
         _ = RealmManager.shared.removeWallet(walletId: walletId)
         wallets.removeAll { $0.walletId == walletId }
-        
+
         if let foundActiveWallet = findActiveWallet() {
             setActiveWallet(foundActiveWallet)
         }
-        
+
     }
-    
-    private func findActiveWallet() -> XMRWallet? {
+
+    private func findActiveWallet() -> BaseWallet? {
         guard let realm = RealmManager.shared.getThreadSaveRealm() else {
             return nil
         }
-        
+
         if let activeRealmObject = realm.objects(WalletsData.self).sorted(byKeyPath: "lastActive", ascending: false).first {
             for item in wallets {
                 if item.walletId == activeRealmObject.walletId {
@@ -169,5 +125,5 @@ class WalletManager: ObservableObject {
         }
         return nil
     }
-    
+
 }

@@ -84,7 +84,7 @@ struct AddWalletMainView: View {
                     restoreError = earlyError
                 } else if let walletError = WalletManager.shared.activeWallet?.walletError {
                     WalletManager.shared.removeActiveWallet()
-                    restoreError = walletError
+                    restoreError = walletError.userMessage
                 } else {
                     currentView = .newMonero3SeedBackUp
                 }
@@ -113,7 +113,7 @@ struct AddWalletMainView: View {
                     restoreError = earlyError
                 } else if let walletError = WalletManager.shared.activeWallet?.walletError {
                     WalletManager.shared.removeActiveWallet()
-                    restoreError = walletError
+                    restoreError = walletError.userMessage
                 } else {
                     isPresented = false
                 }
@@ -189,7 +189,7 @@ struct AddWalletMainView: View {
             restoreHeight = 0
         }
 
-        WalletManager.shared.addNewMoneroWallet(title: data.title ?? "", moneroWallet: wallet, pendingSeedBackup: false, restoreHeight: restoreHeight)
+        WalletManager.shared.addWallet(.monero(wallet, restoreHeight: restoreHeight), title: data.title ?? "", pendingSeedBackup: false)
         return nil
     }
     
@@ -217,7 +217,7 @@ struct AddWalletMainView: View {
             wallet = .legacy(seed: newSeed.components(separatedBy: " "), passphrase: data.passphrase)
         }
 
-        WalletManager.shared.addNewMoneroWallet(title: data.title ?? "", moneroWallet: wallet)
+        WalletManager.shared.addWallet(.monero(wallet, restoreHeight: nil), title: data.title ?? "")
         return nil
     }
 }

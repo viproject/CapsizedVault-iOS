@@ -99,11 +99,11 @@ struct NodeSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     private var activeNodeURL: String {
-        walletManager.activeWallet?.activeNodeURL ?? ""
+        walletManager.activeWallet?.moneroWallet?.activeNodeURL ?? ""
     }
 
     private var connectionStatus: NodeConnectionStatus {
-        guard let wallet = walletManager.activeWallet else { return .offline }
+        guard let wallet = walletManager.activeWallet?.moneroWallet else { return .offline }
         switch wallet.walletState {
         case .synced, .syncing, .idle(daemonReachable: true):
             return .connected
@@ -115,12 +115,12 @@ struct NodeSettingsView: View {
     }
 
     private var activeNode: Node? {
-        WalletManager.allNodes().first { $0.url.absoluteString == activeNodeURL }
+        NodeStore.all(for: .monero).first { $0.url.absoluteString == activeNodeURL }
     }
 
     private var isActiveNodeCustom: Bool {
         guard let activeNode else { return false }
-        return !WalletManager.defaultNodes.contains(activeNode)
+        return !NodeStore.defaults(for: .monero).contains(activeNode)
     }
 
     var body: some View {
@@ -140,10 +140,10 @@ struct NodeSettingsView: View {
             loadCustomNodes()
         }
         .onChange(of: autoSelect) { newValue in
-            walletManager.activeWallet?.setAutoNodeSelectionEnabled(newValue)
-            if newValue, isActiveNodeCustom, let bestURL = walletManager.activeWallet?.bestAutoSelectableNodeURL() {
+            walletManager.activeWallet?.moneroWallet?.setAutoNodeSelectionEnabled(newValue)
+            if newValue, isActiveNodeCustom, let bestURL = walletManager.activeWallet?.moneroWallet?.bestAutoSelectableNodeURL() {
                 pinnedNodeURL = bestURL
-                walletManager.activeWallet?.selectNode(urlString: bestURL)
+                walletManager.activeWallet?.moneroWallet?.selectNode(urlString: bestURL)
             }
         }
         .sheet(isPresented: $showingAddNode) {
@@ -165,7 +165,7 @@ struct NodeSettingsView: View {
                     activeNodeCard
                         .padding(.horizontal, 20)
 
-                    if let error = walletManager.activeWallet?.nodeSwitchError {
+                    if let error = walletManager.activeWallet?.moneroWallet?.nodeSwitchError {
                         Text(error)
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Color.dsDanger)
@@ -431,7 +431,7 @@ struct NodeSettingsView: View {
             .padding(.horizontal, 20)
 
             VStack(spacing: 0) {
-                ForEach(Array(WalletManager.defaultNodes.enumerated()), id: \.element.url) { index, node in
+                ForEach(Array(NodeStore.defaults(for: .monero).enumerated()), id: \.element.url) { index, node in
                     if index > 0 { Divider() }
                     nodeRow(node: node)
                 }
@@ -448,11 +448,11 @@ struct NodeSettingsView: View {
     private func nodeRow(node: Node) -> some View {
         let probeStatus = probeResults[node.url]
         let isSelected = node.url.absoluteString == activeNodeURL
-        let isPending = node.url.absoluteString == walletManager.activeWallet?.pendingNodeURL
+        let isPending = node.url.absoluteString == walletManager.activeWallet?.moneroWallet?.pendingNodeURL
         // Custom nodes are never eligible for auto-selection, so they must never show the "Auto"
         // badge — including transiently, e.g. while activeNodeURL hasn't caught up yet during
         // the brief window right after re-enabling auto-select from a pinned custom node.
-        let isDefault = WalletManager.defaultNodes.contains(node)
+        let isDefault = NodeStore.defaults(for: .monero).contains(node)
         return NodeRowView(
             node: node,
             probeStatus: probeStatus,
@@ -468,7 +468,7 @@ struct NodeSettingsView: View {
     private func handleNodeSelection(node: Node) {
         // Ignore taps on a different node while a switch is already in flight, rather
         // than queuing multiple switchToNode calls back-to-back.
-        if let pending = walletManager.activeWallet?.pendingNodeURL, pending != node.url.absoluteString {
+        if let pending = walletManager.activeWallet?.moneroWallet?.pendingNodeURL, pending != node.url.absoluteString {
             return
         }
         guard node.url.absoluteString != activeNodeURL else { return }
@@ -476,7 +476,7 @@ struct NodeSettingsView: View {
             withAnimation(.easeInOut(duration: 0.2)) { confirmHost = node.url.absoluteString }
         } else {
             pinnedNodeURL = node.url.absoluteString
-            walletManager.activeWallet?.selectNode(urlString: node.url.absoluteString)
+            walletManager.activeWallet?.moneroWallet?.selectNode(urlString: node.url.absoluteString)
         }
     }
 
@@ -518,7 +518,7 @@ struct NodeSettingsView: View {
                     Button(action: {
                         pinnedNodeURL = host
                         autoSelect = false
-                        walletManager.activeWallet?.selectNode(urlString: host)
+                        walletManager.activeWallet?.moneroWallet?.selectNode(urlString: host)
                         withAnimation(.easeInOut(duration: 0.2)) { confirmHost = nil }
                     }) {
                         Text("Turn off automatic")
@@ -692,12 +692,12 @@ struct NodeSettingsView: View {
         AddEditNodeSheet(
             editing: editing,
             onAdd: { urlString, isTrusted, login, password in
-                let success = WalletManager.addCustomNode(
-                    urlString: urlString, isTrusted: isTrusted, login: login, password: password
+                let success = NodeStore.addCustomNode(
+                    urlString: urlString, isTrusted: isTrusted, login: login, password: password, coin: .monero
                 )
                 if success {
                     // Register the new node with the live pool so it can be selected right away
-                    walletManager.activeWallet?.syncNodePool()
+                    walletManager.activeWallet?.moneroWallet?.syncNodePool()
                     showingAddNode = false
                     loadCustomNodes()
                     if autoSelect {
@@ -705,25 +705,25 @@ struct NodeSettingsView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { confirmHost = urlString }
                     } else {
                         pinnedNodeURL = urlString
-                        walletManager.activeWallet?.selectNode(urlString: urlString)
+                        walletManager.activeWallet?.moneroWallet?.selectNode(urlString: urlString)
                     }
                 }
                 return success
             },
             onUpdate: { oldURL, newURL, isTrusted, login, password in
-                let success = WalletManager.updateCustomNode(
+                let success = NodeStore.updateCustomNode(
                     oldURLString: oldURL, newURLString: newURL,
-                    isTrusted: isTrusted, login: login, password: password
+                    isTrusted: isTrusted, login: login, password: password, coin: .monero
                 )
                 if success {
                     let wasActive = activeNodeURL == oldURL
                     // If the edited node was selected, follow the rename
                     if pinnedNodeURL == oldURL { pinnedNodeURL = newURL }
-                    walletManager.activeWallet?.syncNodePool()
+                    walletManager.activeWallet?.moneroWallet?.syncNodePool()
                     if wasActive {
-                        walletManager.activeWallet?.selectNode(urlString: newURL)
+                        walletManager.activeWallet?.moneroWallet?.selectNode(urlString: newURL)
                         // Now that the old URL is no longer active, prune it from the live pool
-                        walletManager.activeWallet?.syncNodePool()
+                        walletManager.activeWallet?.moneroWallet?.syncNodePool()
                     }
                     editingNode = nil
                     loadCustomNodes()
@@ -742,9 +742,9 @@ struct NodeSettingsView: View {
     }
 
     private func testAllNodes() {
-        guard let activeWallet = walletManager.activeWallet else { return }
+        guard let activeWallet = walletManager.activeWallet?.moneroWallet else { return }
         isTesting = true
-        let defaultURLs = Set(WalletManager.defaultNodes.map(\.url))
+        let defaultURLs = Set(NodeStore.defaults(for: .monero).map(\.url))
 
         let nodes = activeWallet.testAllNodes { node, metrics in
             DispatchQueue.main.async {
@@ -776,23 +776,23 @@ struct NodeSettingsView: View {
     }
 
     private func loadCustomNodes() {
-        customNodes = WalletManager.getCustomNodes().map { NodeSnapshot($0) }
+        customNodes = NodeStore.custom(for: .monero).map { NodeSnapshot($0) }
     }
 
     private func deleteCustomNodeByURL(_ urlString: String) {
-        _ = WalletManager.removeCustomNode(urlString: urlString)
+        _ = NodeStore.removeCustomNode(urlString: urlString, coin: .monero)
         if openSwipeHost == urlString { openSwipeHost = nil }
         let wasActive = activeNodeURL == urlString
         if pinnedNodeURL == urlString {
-            pinnedNodeURL = WalletManager.defaultNodes.first?.url.absoluteString ?? ""
+            pinnedNodeURL = NodeStore.defaults(for: .monero).first?.url.absoluteString ?? ""
         }
-        walletManager.activeWallet?.syncNodePool()
+        walletManager.activeWallet?.moneroWallet?.syncNodePool()
         // The pool keeps the active node alive even after removal, so explicitly move
         // the wallet off it onto a default node that's always present in the pool,
         // then prune the removed node now that it's no longer active.
-        if wasActive, let fallback = WalletManager.defaultNodes.first {
-            walletManager.activeWallet?.selectNode(urlString: fallback.url.absoluteString)
-            walletManager.activeWallet?.syncNodePool()
+        if wasActive, let fallback = NodeStore.defaults(for: .monero).first {
+            walletManager.activeWallet?.moneroWallet?.selectNode(urlString: fallback.url.absoluteString)
+            walletManager.activeWallet?.moneroWallet?.syncNodePool()
         }
         loadCustomNodes()
     }

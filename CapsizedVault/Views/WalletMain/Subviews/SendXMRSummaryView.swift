@@ -202,7 +202,7 @@ struct SendXMRSummaryView: View {
     }
 
     private func confirmTransaction() {
-        guard let wallet = walletManager.activeWallet else {
+        guard let wallet = walletManager.activeWallet?.moneroWallet else {
             errorMessage = "No active wallet. Please restart the app and try again."
             showErrorAlert = true
             return
