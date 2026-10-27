@@ -7,10 +7,9 @@ import Foundation
 import Combine
 
 /// The only way views reach coin-specific API — switch on `kind` instead of casting.
-///
-/// Only `.monero` exists for now; `.zcash(ZECWallet)` is added once `ZECWallet` exists.
 enum WalletKind {
     case monero(XMRWallet)
+    case zcash(ZECWallet)
 }
 
 /// Flags shared views read instead of checking `wallet.coin == ...`.
@@ -138,6 +137,11 @@ extension BaseWallet {
     /// e.g. `SendXMRView`, `ReceiveXMRView`, `NodeSettingsView` — rather than an `as?` cast.
     var moneroWallet: XMRWallet? {
         if case .monero(let wallet) = kind { return wallet }
+        return nil
+    }
+
+    var zcashWallet: ZECWallet? {
+        if case .zcash(let wallet) = kind { return wallet }
         return nil
     }
 }

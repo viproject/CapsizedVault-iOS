@@ -80,7 +80,13 @@ class WalletManager: ObservableObject {
         let newWallet = WalletFactory.make(from: request, title: title, pendingSeedBackup: pendingSeedBackup)
         wallets.insert(newWallet, at: 0)
 
-        _ = RealmManager.shared.saveNewWallet(title: title, walletId: newWallet.walletId, pendingSeedBackup: pendingSeedBackup)
+        _ = RealmManager.shared.saveNewWallet(
+            title: title,
+            walletId: newWallet.walletId,
+            pendingSeedBackup: pendingSeedBackup,
+            coin: newWallet.coin,
+            birthdayHeight: newWallet.zcashWallet?.birthdayHeight
+        )
 
         setActiveWallet(newWallet)
     }

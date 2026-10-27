@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import HdWalletKit
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -52,6 +53,20 @@ struct SettingsSheet: View {
                 }
             }
             .padding(.top, 14)
+
+            #if DEBUG
+            // Phase 3 smoke-test tooling only — replaced by the real add-wallet flow in
+            // phase 4. Not gated behind isWatchOnly since it creates a brand-new wallet.
+            settingsCard {
+                SettingsRow(label: "Add test Zcash wallet", icon: "testtube.2", isLast: true) {
+                    if let mnemonic = try? Mnemonic.generate(wordCount: .twentyFour) {
+                        WalletManager.shared.addWallet(.zcashNew(mnemonic: mnemonic), title: "Test Zcash Wallet")
+                    }
+                    dismiss()
+                }
+            }
+            .padding(.top, 14)
+            #endif
 
             // Privacy policy link
             if let urlString = Bundle.main.infoDictionary?["PrivacyPolicyURL"] as? String,

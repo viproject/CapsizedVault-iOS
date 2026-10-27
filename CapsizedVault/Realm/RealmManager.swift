@@ -95,7 +95,7 @@ class RealmManager {
     //was app crash with error 'The Realm is already in a write transaction' (2 apps were running on mac)
     //https://stackoverflow.com/questions/39366182/the-realm-is-already-in-a-write-transaction
     
-    func saveNewWallet (title: String, walletId: String, pendingSeedBackup: Bool = true) -> Bool {
+    func saveNewWallet (title: String, walletId: String, pendingSeedBackup: Bool = true, coin: Coin = .monero, birthdayHeight: Int? = nil) -> Bool {
         guard let realm = getThreadSaveRealm() else {
             return false
         }
@@ -108,6 +108,8 @@ class RealmManager {
                 newXMRWallet.lastActive = Date()
                 newXMRWallet.createdAt = Date()
                 newXMRWallet.pendingSeedBackup = pendingSeedBackup
+                newXMRWallet.coin = coin.rawValue
+                newXMRWallet.birthdayHeight = birthdayHeight
                 realm.add(newXMRWallet)
             }
         }
