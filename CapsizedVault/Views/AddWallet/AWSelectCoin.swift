@@ -8,6 +8,7 @@ import SwiftUI
 struct AWSelectCoin: View {
 
     @Binding var isPresented: Bool
+    var title: String = "New Wallet"
     let onSelect: (Coin) -> Void
 
     var body: some View {
@@ -40,7 +41,7 @@ struct AWSelectCoin: View {
 
     private var headerView: some View {
         ZStack {
-            Text("New Wallet")
+            Text(title)
                 .font(.dsHeadingLG)
                 .foregroundColor(.dsTextPrimary)
 

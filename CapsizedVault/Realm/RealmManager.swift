@@ -202,15 +202,17 @@ class RealmManager {
                         realm.delete(wallet)
                     }
                 }
+                let zcashAccounts = realm.objects(ZcashAccountData.self).filter("walletId == %@", walletId)
+                realm.delete(zcashAccounts)
             }
         }
         catch {
             return false
         }
-        
+
         return true
     }
-    
+
     func clearPendingSeedBackup(walletId: String) -> Bool {
         guard let realm = getThreadSaveRealm() else {
             return false
@@ -249,6 +251,36 @@ class RealmManager {
         let realm = getThreadSaveRealm()!
         let walletsData: Results<WalletsData> = realm.objects(WalletsData.self)
         return walletsData
+    }
+
+    // MARK: - Zcash Accounts
+
+    @discardableResult
+    func saveZcashAccount(walletId: String, accountIndex: Int, label: String, isImportedViewingKey: Bool) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+
+        do {
+            try realm.write {
+                let account = ZcashAccountData()
+                account.walletId = walletId
+                account.accountIndex = accountIndex
+                account.label = label
+                account.isImportedViewingKey = isImportedViewingKey
+                account.createdAt = Date()
+                realm.add(account)
+            }
+        } catch {
+            return false
+        }
+
+        return true
+    }
+
+    func isImportedViewingKeyWallet(walletId: String) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+        return realm.objects(ZcashAccountData.self)
+            .filter("walletId == %@ AND isImportedViewingKey == true", walletId)
+            .first != nil
     }
 
     // MARK: - Custom Nodes

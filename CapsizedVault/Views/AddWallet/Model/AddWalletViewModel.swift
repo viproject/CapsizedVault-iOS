@@ -143,7 +143,7 @@ class AddWalletViewModel: ObservableObject {
         var spendKey: String? = nil
         var restoreHeight = 0
         var restoreDate: Date? = nil
-        
+
         func canUseRestoreOptions () -> Bool {
             if isFromSeed && seed?.split(separator: " ").count == 16 {
                 return false
@@ -151,9 +151,18 @@ class AddWalletViewModel: ObservableObject {
             return true
         }
     }
-    
+
+    class AWRestoreZcashWallet {
+        var title: String? = nil
+        var isViewOnly = false
+        var words: [String] = []
+        var ufvk: String? = nil
+        var birthdayHeight: Int? = nil
+    }
+
     var newMoneroWalletData: AWNewMoneroWallet = AWNewMoneroWallet()
     var newZcashWalletData: AWNewZcashWallet = AWNewZcashWallet()
     var restoreMoneroWalletData: AWRestoreMoneroWallet = AWRestoreMoneroWallet()
-    
+    var restoreZcashWalletData: AWRestoreZcashWallet = AWRestoreZcashWallet()
+
 }

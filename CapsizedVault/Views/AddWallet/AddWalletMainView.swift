@@ -15,10 +15,11 @@ enum AWCurrentView {
     case newMonero1Title, newMonero3SeedBackUp, newMonero4BackUpLater
     case newZcash1Title, newZcash2SeedBackUp, newZcash3BackUpLater
     case restoreMonero1SeedKeys, restoreMonero2Title
+    case restoreZcash1SeedKeys, restoreZcash2Title
 }
 
 enum AWWalletType {
-    case moneroNew, moneroRestore, zcashNew
+    case moneroNew, moneroRestore, zcashNew, zcashRestore
 }
 
 struct AddWalletMainView: View {
@@ -31,20 +32,27 @@ struct AddWalletMainView: View {
     @State private var restoreError: String?
     @StateObject private var walletVM = AddWalletViewModel()
 
+    /// Whether this sheet was opened for Restore rather than Create — set once from the
+    /// `currentWalletType` passed in from `WalletMainView`/`OnboardingView`/`WalletSwitchSheet`,
+    /// all of which still only distinguish "new" vs "restore" at that call site (the coin
+    /// choice happens after this sheet opens, via `AWSelectCoin`).
+    private let isRestoreFlow: Bool
+
     let daemonAddress: String = "http://xmr-node.cakewallet.com:18081"
     let restoreHeight: String = "\(RestoreHeight.getHeight(date: Date()))"
 
     init(isPresented: Binding<Bool>, currentWalletType: AWWalletType) {
         self._isPresented = isPresented
         self._currentWalletType = State(initialValue: currentWalletType)
+        self.isRestoreFlow = currentWalletType == .moneroRestore
 
         switch currentWalletType {
-        case .moneroNew:
+        case .moneroNew, .moneroRestore:
             _currentView = State(initialValue: .selectCoin)
-        case .moneroRestore:
-            _currentView = State(initialValue: .restoreMonero1SeedKeys)
         case .zcashNew:
             _currentView = State(initialValue: .newZcash1Title)
+        case .zcashRestore:
+            _currentView = State(initialValue: .selectCoin)
         }
     }
 
@@ -53,14 +61,25 @@ struct AddWalletMainView: View {
         Group {
             switch currentView {
             case .selectCoin:
-                AWSelectCoin(isPresented: $isPresented) { coin in
-                    switch coin {
-                    case .monero:
-                        currentWalletType = .moneroNew
-                        currentView = .newMonero1Title
-                    case .zcash:
-                        currentWalletType = .zcashNew
-                        currentView = .newZcash1Title
+                AWSelectCoin(isPresented: $isPresented, title: isRestoreFlow ? "Restore Wallet" : "New Wallet") { coin in
+                    if isRestoreFlow {
+                        switch coin {
+                        case .monero:
+                            currentWalletType = .moneroRestore
+                            currentView = .restoreMonero1SeedKeys
+                        case .zcash:
+                            currentWalletType = .zcashRestore
+                            currentView = .restoreZcash1SeedKeys
+                        }
+                    } else {
+                        switch coin {
+                        case .monero:
+                            currentWalletType = .moneroNew
+                            currentView = .newMonero1Title
+                        case .zcash:
+                            currentWalletType = .zcashNew
+                            currentView = .newZcash1Title
+                        }
                     }
                 }
             case .newMonero1Title:
@@ -100,6 +119,12 @@ struct AddWalletMainView: View {
                     .environmentObject(walletVM)
             case .restoreMonero2Title:
                 AWRestoreMonero2Title(nextAction: nextAction, backAction: backAction)
+                    .environmentObject(walletVM)
+            case .restoreZcash1SeedKeys:
+                AWRestoreZcash1SeedKeys(isPresented: $isPresented, nextAction: nextAction)
+                    .environmentObject(walletVM)
+            case .restoreZcash2Title:
+                AWRestoreZcash2Title(nextAction: nextAction, backAction: backAction)
                     .environmentObject(walletVM)
             }
         }
@@ -186,6 +211,22 @@ struct AddWalletMainView: View {
             default:
                 break
             }
+        case .zcashRestore:
+            switch currentView {
+            case .restoreZcash1SeedKeys:
+                currentView = .restoreZcash2Title
+            case .restoreZcash2Title:
+                if let earlyError = connectToWallet_RestoreZcash() {
+                    restoreError = earlyError
+                } else if let walletError = WalletManager.shared.activeWallet?.walletError {
+                    WalletManager.shared.removeActiveWallet()
+                    restoreError = walletError.userMessage
+                } else {
+                    isPresented = false
+                }
+            default:
+                break
+            }
         }
     }
 
@@ -209,6 +250,13 @@ struct AddWalletMainView: View {
             switch currentView {
             case .restoreMonero2Title:
                 currentView = .restoreMonero1SeedKeys
+            default:
+                break
+            }
+        case .zcashRestore:
+            switch currentView {
+            case .restoreZcash2Title:
+                currentView = .restoreZcash1SeedKeys
             default:
                 break
             }
@@ -291,6 +339,25 @@ struct AddWalletMainView: View {
         }
 
         WalletManager.shared.addWallet(.monero(wallet, restoreHeight: nil), title: data.title ?? "")
+        return nil
+    }
+
+    @discardableResult
+    private func connectToWallet_RestoreZcash() -> String? {
+
+        let data = walletVM.restoreZcashWalletData
+
+        if data.isViewOnly {
+            guard let ufvk = data.ufvk, !ufvk.isEmpty else {
+                return "A viewing key is required."
+            }
+            WalletManager.shared.addWallet(.zcashViewOnly(ufvk: ufvk, birthday: data.birthdayHeight), title: data.title ?? "", pendingSeedBackup: false)
+        } else {
+            guard !data.words.isEmpty else {
+                return "Seed phrase is empty."
+            }
+            WalletManager.shared.addWallet(.zcashRestore(mnemonic: data.words, birthday: data.birthdayHeight), title: data.title ?? "", pendingSeedBackup: false)
+        }
         return nil
     }
 

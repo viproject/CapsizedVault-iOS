@@ -22,11 +22,27 @@ protocol ZcashEngine: AnyObject {
     /// `birthday` is `nil` for a brand-new wallet (the SDK picks a reorg-safe recent height)
     /// or a restore height for a restored wallet. Ignored by the SDK once an account exists.
     func prepare(seed: [UInt8], birthday: Int?) async throws
+    /// For a wallet with no seed. `pendingUFVK` is the viewing key to import on first
+    /// activation; subsequent activations pass `nil` since the SDK already has the account
+    /// on disk. Throws `ZcashEngineError.viewingKeyMissing` if no account exists yet and
+    /// `pendingUFVK` is `nil`.
+    func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws
     func start() async throws
     /// Returns only once the SDK itself reports it has stopped.
     func stop() async
     func accountBalance() async throws -> WalletAccountBalance?
     func transactions(page: Int) async throws -> [WalletTransaction]
+}
+
+enum ZcashEngineError: LocalizedError {
+    case viewingKeyMissing
+
+    var errorDescription: String? {
+        switch self {
+        case .viewingKeyMissing:
+            return "No viewing key available to import."
+        }
+    }
 }
 
 /// Whether Zcash traffic (tx submit/lookup/server-eval) goes over the SDK's built-in Tor
@@ -111,6 +127,26 @@ final class SDKZcashEngine: ZcashEngine {
     func prepare(seed: [UInt8], birthday: Int?) async throws {
         _ = try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Account 1", keySource: nil)
         accountUUID = try await synchronizer.listAccounts().first?.id
+    }
+
+    func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
+        _ = try await synchronizer.prepare(with: nil, walletBirthday: birthday, name: "Account 1", keySource: nil)
+        if let existing = try await synchronizer.listAccounts().first {
+            accountUUID = existing.id
+            return
+        }
+        guard let pendingUFVK else {
+            throw ZcashEngineError.viewingKeyMissing
+        }
+        accountUUID = try await synchronizer.importAccount(
+            ufvk: pendingUFVK,
+            seedFingerprint: nil,
+            zip32AccountIndex: nil,
+            purpose: .viewOnly,
+            name: "Account 1",
+            keySource: nil,
+            birthday: birthday
+        )
     }
 
     func start() async throws {

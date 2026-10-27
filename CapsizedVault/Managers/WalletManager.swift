@@ -88,6 +88,15 @@ class WalletManager: ObservableObject {
             birthdayHeight: newWallet.zcashWallet?.birthdayHeight
         )
 
+        if case .zcashViewOnly = request {
+            RealmManager.shared.saveZcashAccount(
+                walletId: newWallet.walletId,
+                accountIndex: 0,
+                label: "Account 1",
+                isImportedViewingKey: true
+            )
+        }
+
         setActiveWallet(newWallet)
     }
 

@@ -38,6 +38,7 @@ class ZECWallet: BaseWallet {
         let zatoshi = realmObj.cachedTotalUnlockedPiconero
         self.cachedTotalUnlocked = zatoshi >= 0 ? CoinAmount(atomic: zatoshi, coin: .zcash) : nil
         self.birthdayHeight = realmObj.birthdayHeight
+        setWatchOnly(RealmManager.shared.isImportedViewingKeyWallet(walletId: realmObj.walletId))
     }
 
     /// `mnemonic` is saved to the Keychain here and never kept in memory afterwards —
@@ -56,6 +57,23 @@ class ZECWallet: BaseWallet {
         }
     }
 
+    /// View-only wallet built from an imported UFVK. The key is held in the Keychain only
+    /// until `activate()` successfully imports it into the SDK, then deleted — see
+    /// `prepareViewOnly` below.
+    init(viewingKey: String, birthday: Int?, title: String, newWalletId: String = UUID().uuidString, engineFactory: @escaping (String) -> ZcashEngine = { SDKZcashEngine(walletId: $0) }) {
+        self.engineFactory = engineFactory
+        super.init(coin: .zcash)
+        self.title = title
+        self.walletId = newWalletId
+        self.pendingSeedBackup = false
+        self.birthdayHeight = birthday
+        setWatchOnly(true)
+
+        if !KeychainHelper.savePendingZcashViewingKey(viewingKey, for: walletId) {
+            walletError = .unknown("Failed to save viewing key")
+        }
+    }
+
     override var kind: WalletKind { .zcash(self) }
 
     override var capabilities: WalletCapabilities {
@@ -63,7 +81,7 @@ class ZECWallet: BaseWallet {
             supportsSubaddresses: false,
             hasTransparentPool: true,
             supportsShielding: true,
-            accountCreation: .derive,
+            accountCreation: isWatchOnly ? .importViewingKey : .derive,
             supportsMemo: true,
             supportsSendPriority: false,
             canSend: false // Send lands in phase 7.
@@ -73,17 +91,11 @@ class ZECWallet: BaseWallet {
     override func activate() {
         let walletId = self.walletId
         let birthdayHeight = self.birthdayHeight
+        let isWatchOnly = self.isWatchOnly
 
         activationTask = Task { [weak self] in
             await ZECWallet.pendingTeardowns[walletId]?.value
             guard let self, !Task.isCancelled else { return }
-
-            guard let seedData = KeychainHelper.zcashSeed(for: walletId),
-                  let seedWords = String(data: seedData, encoding: .utf8)?.components(separatedBy: " "),
-                  let seedBytes = Mnemonic.seed(mnemonic: seedWords) else {
-                self.walletError = .walletFilesMissing
-                return
-            }
 
             let engine = self.engineFactory(walletId)
             self.engine = engine
@@ -92,7 +104,22 @@ class ZECWallet: BaseWallet {
             // taken `engine` and started stopping it, so this Task must not touch it again
             // (in particular, must not call `start()` on an engine mid-stop).
             do {
-                try await engine.prepare(seed: [UInt8](seedBytes), birthday: birthdayHeight)
+                if isWatchOnly {
+                    let pendingUFVK = KeychainHelper.pendingZcashViewingKey(for: walletId)
+                    try await engine.prepareViewOnly(pendingUFVK: pendingUFVK, birthday: birthdayHeight)
+                    if pendingUFVK != nil {
+                        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+                    }
+                } else {
+                    guard let seedData = KeychainHelper.zcashSeed(for: walletId),
+                          let seedWords = String(data: seedData, encoding: .utf8)?.components(separatedBy: " "),
+                          let seedBytes = Mnemonic.seed(mnemonic: seedWords) else {
+                        self.walletError = .walletFilesMissing
+                        self.engine = nil
+                        return
+                    }
+                    try await engine.prepare(seed: [UInt8](seedBytes), birthday: birthdayHeight)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 self.walletError = .unknown("Failed to initialize wallet: \(error.localizedDescription)")
@@ -173,6 +200,7 @@ class ZECWallet: BaseWallet {
     override func removeFiles() {
         let walletId = self.walletId
         KeychainHelper.deleteZcashSeed(for: walletId)
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
 
         activationTask?.cancel()
         activationTask = nil

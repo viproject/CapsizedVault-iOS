@@ -15,10 +15,13 @@ private final class FakeZcashEngine: ZcashEngine {
     private let continuation: AsyncStream<ZcashEngineUpdate>.Continuation
 
     private(set) var prepareCount = 0
+    private(set) var prepareViewOnlyCount = 0
+    private(set) var lastPendingUFVK: String?
     private(set) var startCount = 0
     private(set) var stopCount = 0
     var prepareDelayNanoseconds: UInt64 = 0
     var stopDelayNanoseconds: UInt64 = 0
+    var prepareViewOnlyError: Error?
     var balance: WalletAccountBalance?
     var pages: [[WalletTransaction]] = []
 
@@ -33,6 +36,14 @@ private final class FakeZcashEngine: ZcashEngine {
             try? await Task.sleep(nanoseconds: prepareDelayNanoseconds)
         }
         prepareCount += 1
+    }
+
+    func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
+        prepareViewOnlyCount += 1
+        lastPendingUFVK = pendingUFVK
+        if let prepareViewOnlyError {
+            throw prepareViewOnlyError
+        }
     }
 
     func start() async throws {
@@ -187,5 +198,72 @@ struct ZECWalletTests {
 
         #expect(WalletFactory.make(from: zecRow) is ZECWallet)
         #expect(WalletFactory.make(from: xmrRow) is XMRWallet)
+    }
+
+    @Test func zcashRestoreNilBirthdayFallsBackToSaplingActivation() throws {
+        let wallet = WalletFactory.make(from: .zcashRestore(mnemonic: try testMnemonic(), birthday: nil), title: "Test") as? ZECWallet
+        #expect(wallet?.birthdayHeight == 419_200)
+    }
+
+    @Test func zcashViewOnlyNilBirthdayFallsBackToSaplingActivation() throws {
+        let wallet = WalletFactory.make(from: .zcashViewOnly(ufvk: "uview1test", birthday: nil), title: "Test") as? ZECWallet
+        #expect(wallet?.birthdayHeight == 419_200)
+        if let walletId = wallet?.walletId {
+            KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+        }
+    }
+
+    // MARK: - View-only wallets
+
+    @Test func viewOnlyWalletCallsPrepareViewOnlyNotPrepare() async throws {
+        let engine = FakeZcashEngine()
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1testkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
+
+        #expect(wallet.isWatchOnly == true)
+        #expect(wallet.capabilities.canSend == false)
+        #expect(wallet.capabilities.accountCreation == .importViewingKey)
+
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        #expect(engine.prepareViewOnlyCount == 1)
+        #expect(engine.prepareCount == 0)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+    }
+
+    @Test func viewOnlySuccessfulImportDeletesPendingKeychainItem() async throws {
+        let engine = FakeZcashEngine()
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1anotherkey", birthday: nil, title: "Test", newWalletId: walletId, engineFactory: { _ in engine })
+
+        #expect(KeychainHelper.pendingZcashViewingKey(for: walletId) == "uview1anotherkey")
+
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        #expect(engine.lastPendingUFVK == "uview1anotherkey")
+        #expect(KeychainHelper.pendingZcashViewingKey(for: walletId) == nil)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func viewOnlyFailedImportKeepsPendingKeychainItemAndSetsError() async throws {
+        let engine = FakeZcashEngine()
+        engine.prepareViewOnlyError = ZcashEngineError.viewingKeyMissing
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1failingkey", birthday: nil, title: "Test", newWalletId: walletId, engineFactory: { _ in engine })
+
+        wallet.activate()
+        try await waitUntil { wallet.walletError != nil }
+
+        #expect(KeychainHelper.pendingZcashViewingKey(for: walletId) == "uview1failingkey")
+        #expect(engine.startCount == 0)
+
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
     }
 }

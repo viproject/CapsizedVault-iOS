@@ -14,7 +14,7 @@ enum NewWalletRequest {
     case monero(MoneroWallet, restoreHeight: UInt64?)
     case zcashNew(mnemonic: [String])
     case zcashRestore(mnemonic: [String], birthday: Int?)
-    // UFVK (view-only) import lands in phase 5.
+    case zcashViewOnly(ufvk: String, birthday: Int?)
 }
 
 enum WalletFactory {
@@ -42,6 +42,8 @@ enum WalletFactory {
             return ZECWallet(mnemonic: mnemonic, birthday: nil, title: title, pendingSeedBackup: pendingSeedBackup)
         case .zcashRestore(let mnemonic, let birthday):
             return ZECWallet(mnemonic: mnemonic, birthday: birthday ?? zcashSaplingActivationHeight, title: title, pendingSeedBackup: pendingSeedBackup)
+        case .zcashViewOnly(let ufvk, let birthday):
+            return ZECWallet(viewingKey: ufvk, birthday: birthday ?? zcashSaplingActivationHeight, title: title)
         }
     }
 }

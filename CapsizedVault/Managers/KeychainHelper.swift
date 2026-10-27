@@ -62,6 +62,34 @@ enum KeychainHelper {
         "io.capsized.vault.zcash-seed.\(walletId)"
     }
 
+    // MARK: - Zcash pending viewing key (view-only wallets, deleted once imported)
+
+    @discardableResult
+    static func savePendingZcashViewingKey(_ ufvk: String, for walletId: String) -> Bool {
+        let key = pendingZcashViewingKeyKey(walletId)
+        deleteItem(forKey: key)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: Data(ufvk.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func pendingZcashViewingKey(for walletId: String) -> String? {
+        readItem(forKey: pendingZcashViewingKeyKey(walletId))
+    }
+
+    @discardableResult
+    static func deletePendingZcashViewingKey(for walletId: String) -> Bool {
+        deleteItem(forKey: pendingZcashViewingKeyKey(walletId))
+    }
+
+    private static func pendingZcashViewingKeyKey(_ walletId: String) -> String {
+        "io.capsized.vault.zcash-pending-ufvk.\(walletId)"
+    }
+
     // MARK: - Custom node RPC credentials
 
     private struct NodeCredentials: Codable {
