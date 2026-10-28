@@ -48,6 +48,7 @@ struct WalletMainView: View {
     @State private var showingReceiveXMR = false
     @State private var showingReceiveZEC = false
     @State private var showingSendXMR = false
+    @State private var showingSendZEC = false
     @State private var selectedTransactionHash: String?
     @State private var labelInput = ""
     @State private var showingWatchOnlySendAlert = false
@@ -246,6 +247,12 @@ struct WalletMainView: View {
         }
         .sheet(isPresented: $showingSendXMR) {
             SendXMRView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(20)
+        }
+        .sheet(isPresented: $showingSendZEC) {
+            SendZECView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
@@ -646,6 +653,8 @@ struct WalletMainView: View {
             quickActionCell(label: "Send", icon: "arrow.up.right", enabled: wallet.capabilities.canSend) {
                 if wallet.isWatchOnly {
                     showingWatchOnlySendAlert = true
+                } else if wallet.zcashWallet != nil {
+                    showingSendZEC = true
                 } else {
                     showingSendXMR = true
                 }

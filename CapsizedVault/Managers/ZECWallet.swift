@@ -89,7 +89,7 @@ class ZECWallet: BaseWallet {
             accountCreation: isWatchOnly ? .importViewingKey : .derive,
             supportsMemo: true,
             supportsSendPriority: false,
-            canSend: false // Send lands in phase 7.
+            canSend: !isWatchOnly
         )
     }
 
@@ -187,15 +187,51 @@ class ZECWallet: BaseWallet {
     }
 
     override func estimateFee(to address: String, amount: CoinAmount) async -> Result<CoinAmount, WalletError> {
-        .failure(.unknown("Sending isn't supported yet"))
+        guard let engine else { return .failure(.walletFilesMissing) }
+        do {
+            let fee = try await engine.estimateFee(to: address, amount: amount.atomic, memo: nil)
+            return .success(CoinAmount(atomic: fee, coin: .zcash))
+        } catch {
+            return .failure(ZECWallet.mapSendError(error))
+        }
     }
 
     override func send(to address: String, amount: CoinAmount, memo: String?) async -> Result<Bool, WalletError> {
-        .failure(.unknown("Sending isn't supported yet"))
+        guard !isWatchOnly else { return .failure(.unknown("View-only wallets can't send.")) }
+        guard let engine else { return .failure(.walletFilesMissing) }
+        guard let seedBytes = ZECWallet.resolveSeedBytes(for: walletId) else { return .failure(.walletFilesMissing) }
+
+        do {
+            try await engine.send(to: address, amount: amount.atomic, memo: memo, seed: seedBytes)
+            await refreshBalance()
+            return .success(true)
+        } catch {
+            return .failure(ZECWallet.mapSendError(error))
+        }
     }
 
     override func isValidAddress(_ address: String) -> Bool {
-        false // Phase 7.
+        addressKind(address) != .invalid
+    }
+
+    /// Used by `SendZECView` to decide whether to show the memo field — the SDK refuses a
+    /// memo for a transparent/TEX recipient (`synchronizerSendMemoToTransparentAddress`).
+    func addressKind(_ address: String) -> ZcashAddressKind {
+        engine?.classifyAddress(address) ?? .invalid
+    }
+
+    /// Proactive head start on the one-time ~50MB Sapling parameter download, so a user who
+    /// fills out the Send form slowly doesn't also wait for it at submit time. `send()`
+    /// already downloads these automatically if still missing — this is UI-progress-only,
+    /// not a correctness requirement. Returns `true` once the files are confirmed present.
+    func ensureSaplingParamsDownloaded() async -> Bool {
+        guard let engine else { return false }
+        do {
+            try await engine.ensureSaplingParamsDownloaded()
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Called by `WalletManager.removeActiveWallet()` *before* `deactivate()` — unlike
@@ -249,6 +285,13 @@ class ZECWallet: BaseWallet {
         } catch {
             return .failure(.unknown("Failed to shield funds: \(error.localizedDescription)"))
         }
+    }
+
+    /// `SDKZcashEngine` already translates SDK-specific errors into `WalletError` before
+    /// they leave the engine layer (see `ZcashEngine.swift`'s `mapToWalletError`) — anything
+    /// else (e.g. `ZcashEngineError.noAccount`) just falls back to its description.
+    private static func mapSendError(_ error: Error) -> WalletError {
+        (error as? WalletError) ?? .unknown(error.localizedDescription)
     }
 
     private func loadAddresses(engine: ZcashEngine) async {

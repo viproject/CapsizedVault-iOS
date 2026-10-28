@@ -16,6 +16,15 @@ enum ZcashEngineUpdate {
     case transactionsChanged
 }
 
+/// What kind of recipient a pasted/scanned address is, without leaking SDK `Recipient`
+/// types past this file — `ZECWallet`/views only ever see this enum.
+enum ZcashAddressKind {
+    case invalid
+    case shielded
+    /// Transparent or TEX — the SDK refuses a memo for either, so views treat them the same.
+    case transparent
+}
+
 protocol ZcashEngine: AnyObject {
     var updates: AsyncStream<ZcashEngineUpdate> { get }
 
@@ -40,12 +49,28 @@ protocol ZcashEngine: AnyObject {
     /// watch-only wallets (gated by `ZECWallet.capabilities.supportsShielding`). Returns
     /// `false` if there was no transparent balance to shield.
     func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool
+
+    /// Classifies a pasted/scanned address without building a spendable proposal — used for
+    /// live address-field validation and for deciding whether to show the memo field (the SDK
+    /// refuses a memo for a transparent/TEX recipient).
+    func classifyAddress(_ address: String) -> ZcashAddressKind
+    /// Builds a transfer proposal and returns its ZIP-317 fee in zatoshi, without creating or
+    /// submitting anything. Safe to call repeatedly (e.g. debounced on every keystroke).
+    func estimateFee(to address: String, amount: Int64, memo: String?) async throws -> Int64
+    /// Builds a fresh transfer proposal and creates + submits it. `seed` derives the spending
+    /// key, the same way `shieldFunds(seed:memo:)` already does.
+    func send(to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws
+    /// Proactively downloads the ~50MB Sapling parameter files this account needs for any
+    /// shielded spend, if they aren't already present. `send`/`shieldFunds` already trigger
+    /// this download automatically the first time it's actually needed, so this call is only
+    /// a head start for the UI to show progress on — not a correctness requirement.
+    func ensureSaplingParamsDownloaded() async throws
 }
 
 enum ZcashEngineError: LocalizedError {
     case viewingKeyMissing
     case noAccount
-    case shieldingFailed(String)
+    case transactionSubmissionFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -53,7 +78,7 @@ enum ZcashEngineError: LocalizedError {
             return "No viewing key available to import."
         case .noAccount:
             return "No account available yet."
-        case .shieldingFailed(let description):
+        case .transactionSubmissionFailed(let description):
             return description
         }
     }
@@ -89,12 +114,21 @@ final class SDKZcashEngine: ZcashEngine {
     private var cancellables: Set<AnyCancellable> = []
     private let updatesContinuation: AsyncStream<ZcashEngineUpdate>.Continuation
 
+    // Kept alongside the `Initializer` (which doesn't expose these publicly) so
+    // `ensureSaplingParamsDownloaded()` can reuse the exact same locations/source.
+    private let spendParamsURL: URL
+    private let outputParamsURL: URL
+    private let saplingParamsSourceURL: SaplingParamsSourceURL = .default
+    private let paramsLogger = OSLogger(logLevel: .error)
+
     init(walletId: String) {
         let dir = SDKZcashEngine.walletDirectory(for: walletId)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let network = ZcashNetworkBuilder.network(for: .mainnet)
         self.network = network.networkType
+        self.spendParamsURL = dir.appendingPathComponent(ZcashSDK.spendParamFilename)
+        self.outputParamsURL = dir.appendingPathComponent(ZcashSDK.outputParamFilename)
         // Hard-coded until phase 9's ZcashServerSettingsView. Always TLS — no UI path to
         // disable it, per the security-review decision.
         let endpoint = LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
@@ -106,9 +140,9 @@ final class SDKZcashEngine: ZcashEngine {
             torDirURL: dir.appendingPathComponent(ZcashSDK.defaultTorDirName, isDirectory: true),
             endpoint: endpoint,
             network: network,
-            spendParamsURL: dir.appendingPathComponent(ZcashSDK.spendParamFilename),
-            outputParamsURL: dir.appendingPathComponent(ZcashSDK.outputParamFilename),
-            saplingParamsSourceURL: .default,
+            spendParamsURL: spendParamsURL,
+            outputParamsURL: outputParamsURL,
+            saplingParamsSourceURL: saplingParamsSourceURL,
             alias: .custom(walletId),
             // The default logging policy writes unredacted Rust text to os_log at .debug.
             loggingPolicy: .default(.error),
@@ -235,7 +269,61 @@ final class SDKZcashEngine: ZcashEngine {
         }
 
         let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdAccountIndex)
-        let stream = try await synchronizer.createProposedTransactions(proposal: proposal, spendingKey: usk)
+        return try await submitProposal(proposal, spendingKey: usk)
+    }
+
+    func classifyAddress(_ address: String) -> ZcashAddressKind {
+        guard let recipient = try? Recipient(address, network: network) else { return .invalid }
+        switch recipient {
+        case .transparent, .tex:
+            return .transparent
+        case .sapling, .unified:
+            return .shielded
+        }
+    }
+
+    func estimateFee(to address: String, amount: Int64, memo: String?) async throws -> Int64 {
+        guard let accountUUID else { throw ZcashEngineError.noAccount }
+        do {
+            let proposal = try await buildTransferProposal(accountUUID: accountUUID, address: address, amount: amount, memo: memo)
+            return proposal.totalFeeRequired().amount
+        } catch {
+            throw Self.mapToWalletError(error)
+        }
+    }
+
+    func send(to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws {
+        guard let accountUUID, let hdAccountIndex else { throw ZcashEngineError.noAccount }
+        do {
+            let proposal = try await buildTransferProposal(accountUUID: accountUUID, address: address, amount: amount, memo: memo)
+            let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdAccountIndex)
+            _ = try await submitProposal(proposal, spendingKey: usk)
+        } catch {
+            throw Self.mapToWalletError(error)
+        }
+    }
+
+    func ensureSaplingParamsDownloaded() async throws {
+        try await SaplingParameterDownloader.downloadParamsIfnotPresent(
+            spendURL: spendParamsURL,
+            spendSourceURL: saplingParamsSourceURL.spendParamFileURL,
+            outputURL: outputParamsURL,
+            outputSourceURL: saplingParamsSourceURL.outputParamFileURL,
+            logger: paramsLogger
+        )
+    }
+
+    private func buildTransferProposal(accountUUID: AccountUUID, address: String, amount: Int64, memo: String?) async throws -> Proposal {
+        let recipient = try Recipient(address, network: network)
+        let memoValue = try memo.map { try Memo(string: $0) }
+        return try await synchronizer.proposeTransfer(accountUUID: accountUUID, recipient: recipient, amount: Zatoshi(amount), memo: memoValue)
+    }
+
+    /// Shared by `shieldFunds` and `send` — both just differ in how they build the `Proposal`.
+    /// Downloads Sapling parameters automatically on first use (`SDKBroadcaster`), same as any
+    /// other `createProposedTransactions` call.
+    private func submitProposal(_ proposal: Proposal, spendingKey: UnifiedSpendingKey) async throws -> Bool {
+        let stream = try await synchronizer.createProposedTransactions(proposal: proposal, spendingKey: spendingKey)
         for try await result in stream {
             switch result {
             case .success, .notAttempted:
@@ -243,10 +331,29 @@ final class SDKZcashEngine: ZcashEngine {
             case .grpcFailure(_, let error):
                 throw error
             case .submitFailure(_, _, let description):
-                throw ZcashEngineError.shieldingFailed(description)
+                throw ZcashEngineError.transactionSubmissionFailed(description)
             }
         }
         return true
+    }
+
+    /// Translates SDK-specific errors into `WalletError` here, inside the one file that's
+    /// allowed to know about `ZcashLightClientKit` — `ZECWallet` only ever sees `WalletError`
+    /// or an opaque `Error` it falls back to `.localizedDescription` for.
+    private static func mapToWalletError(_ error: Error) -> Error {
+        guard let zcashError = error as? ZcashError else { return error }
+        switch zcashError {
+        case .rustProposalInsufficientFunds(let available, _):
+            return WalletError.insufficientFunds(available: CoinAmount(atomic: available.amount, coin: .zcash))
+        case .recipientInvalidInput:
+            return WalletError.invalidAddress
+        case .saplingParamsDownload, .saplingParamsCantMoveDownloadedFile,
+             .saplingParamsInvalidSpendParams, .saplingParamsInvalidOutputParams,
+             .walletTransEncoderCreateTransactionMissingSaplingParams:
+            return WalletError.paramsDownloadFailed
+        default:
+            return error
+        }
     }
 
     private func isStopped(_ status: SyncStatus) -> Bool {
