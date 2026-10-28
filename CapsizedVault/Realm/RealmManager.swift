@@ -363,15 +363,15 @@ class RealmManager {
 
     // MARK: - Custom Nodes
 
-    func getCustomNodes() -> [NodeData] {
+    func getCustomNodes(coin: Coin = .monero) -> [NodeData] {
         guard let realm = getThreadSaveRealm() else { return [] }
-        return Array(realm.objects(NodeData.self).sorted(byKeyPath: "createdAt", ascending: true))
+        return Array(realm.objects(NodeData.self).filter("coin == %@", coin.rawValue).sorted(byKeyPath: "createdAt", ascending: true))
     }
 
-    func addCustomNode(urlString: String, isTrusted: Bool, login: String, password: String) -> Bool {
+    func addCustomNode(urlString: String, isTrusted: Bool, login: String, password: String, coin: Coin = .monero) -> Bool {
         guard let realm = getThreadSaveRealm() else { return false }
 
-        let exists = realm.objects(NodeData.self).filter("urlString == %@", urlString).first != nil
+        let exists = realm.objects(NodeData.self).filter("urlString == %@ AND coin == %@", urlString, coin.rawValue).first != nil
         if exists { return false }
 
         var nodeId: String?
@@ -381,6 +381,7 @@ class RealmManager {
                 node.urlString = urlString
                 node.isTrusted = isTrusted
                 node.createdAt = Date()
+                node.coin = coin.rawValue
                 realm.add(node)
                 nodeId = node._id.stringValue
             }
@@ -394,18 +395,18 @@ class RealmManager {
         return true
     }
 
-    func updateCustomNode(oldURLString: String, newURLString: String, isTrusted: Bool, login: String, password: String) -> Bool {
+    func updateCustomNode(oldURLString: String, newURLString: String, isTrusted: Bool, login: String, password: String, coin: Coin = .monero) -> Bool {
         guard let realm = getThreadSaveRealm() else { return false }
 
         if newURLString != oldURLString {
-            let collides = realm.objects(NodeData.self).filter("urlString == %@", newURLString).first != nil
+            let collides = realm.objects(NodeData.self).filter("urlString == %@ AND coin == %@", newURLString, coin.rawValue).first != nil
             if collides { return false }
         }
 
         var nodeId: String?
         do {
             try realm.write {
-                if let node = realm.objects(NodeData.self).filter("urlString == %@", oldURLString).first {
+                if let node = realm.objects(NodeData.self).filter("urlString == %@ AND coin == %@", oldURLString, coin.rawValue).first {
                     node.urlString = newURLString
                     node.isTrusted = isTrusted
                     nodeId = node._id.stringValue
@@ -421,14 +422,14 @@ class RealmManager {
         return true
     }
 
-    func removeCustomNode(urlString: String) -> Bool {
+    func removeCustomNode(urlString: String, coin: Coin = .monero) -> Bool {
         guard let realm = getThreadSaveRealm() else { return false }
 
-        let nodeIds = realm.objects(NodeData.self).filter("urlString == %@", urlString).map { $0._id.stringValue }
+        let nodeIds = realm.objects(NodeData.self).filter("urlString == %@ AND coin == %@", urlString, coin.rawValue).map { $0._id.stringValue }
 
         do {
             try realm.write {
-                let nodes = realm.objects(NodeData.self).filter("urlString == %@", urlString)
+                let nodes = realm.objects(NodeData.self).filter("urlString == %@ AND coin == %@", urlString, coin.rawValue)
                 realm.delete(nodes)
             }
         } catch {

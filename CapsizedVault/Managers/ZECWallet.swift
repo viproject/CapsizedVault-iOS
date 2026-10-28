@@ -300,6 +300,21 @@ class ZECWallet: BaseWallet {
         return .success(())
     }
 
+    /// Every account's label and UFVK, for the Backup screen's "Viewing keys" list on a
+    /// view-only wallet. Never persisted — always re-read from the live engine, same as
+    /// `addViewingKey`'s duplicate-check.
+    func viewingKeys() async -> [(label: String, ufvk: String, isAddedViewingKey: Bool)] {
+        guard let engine, let sdkAccounts = try? await engine.listAccounts() else { return [] }
+        var ufvkByID: [ZcashAccountID: String] = [:]
+        for account in sdkAccounts {
+            if let ufvk = account.ufvk { ufvkByID[account.id] = ufvk }
+        }
+        return accountList.compactMap { info in
+            guard let id = accountIDs[info.index], let ufvk = ufvkByID[id] else { return nil }
+            return (label: info.label, ufvk: ufvk, isAddedViewingKey: info.isAddedViewingKey)
+        }
+    }
+
     override func estimateFee(to address: String, amount: CoinAmount) async -> Result<CoinAmount, WalletError> {
         guard let engine, let accountID = accountIDs[Int(activeAccountIndex)] else { return .failure(.walletFilesMissing) }
         do {

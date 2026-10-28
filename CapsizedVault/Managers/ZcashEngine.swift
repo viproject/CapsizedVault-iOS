@@ -123,13 +123,42 @@ enum ZcashEngineError: LocalizedError {
 }
 
 /// Whether Zcash traffic (tx submit/lookup/server-eval) goes over the SDK's built-in Tor
-/// client. Read-only until phase 9 adds the `ZcashServerSettingsView` toggle. Never covers
-/// Monero traffic.
+/// client, and which lightwalletd server a wallet connects to. Both are only read when a
+/// `SDKZcashEngine` is constructed, so changing either requires `BaseWallet.restartSync()` to
+/// take effect. Never covers Monero traffic/nodes.
 enum ZcashSettings {
     private static let torEnabledKey = "zcashTorEnabled"
+    private static let serverURLKey = "zcashServerURL"
+    static let defaultServerURLString = "https://zec.rocks:443"
+
+    /// Must be called once at app launch (see `CapsizedVaultApp.init`), before any
+    /// `SDKZcashEngine` is constructed, so `isTorEnabled`/`selectedServerURLString` read a
+    /// real default instead of `UserDefaults`' own type-less nil.
+    static func registerDefaults() {
+        UserDefaults.standard.register(defaults: [
+            torEnabledKey: true,
+            serverURLKey: defaultServerURLString
+        ])
+    }
 
     static var isTorEnabled: Bool {
-        UserDefaults.standard.object(forKey: torEnabledKey) as? Bool ?? true
+        get { UserDefaults.standard.bool(forKey: torEnabledKey) }
+        set { UserDefaults.standard.set(newValue, forKey: torEnabledKey) }
+    }
+
+    static var selectedServerURLString: String {
+        get { UserDefaults.standard.string(forKey: serverURLKey) ?? defaultServerURLString }
+        set { UserDefaults.standard.set(newValue, forKey: serverURLKey) }
+    }
+
+    /// Parses `selectedServerURLString` into a `LightWalletEndpoint`. Always TLS — no UI path
+    /// to disable it, per the security-review decision. Falls back to the default server if the
+    /// stored string is somehow malformed.
+    static var endpoint: LightWalletEndpoint {
+        guard let url = URL(string: selectedServerURLString), let host = url.host else {
+            return LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
+        }
+        return LightWalletEndpoint(address: host, port: url.port ?? 443, secure: true)
     }
 }
 
@@ -175,9 +204,7 @@ final class SDKZcashEngine: ZcashEngine {
         self.network = network.networkType
         self.spendParamsURL = dir.appendingPathComponent(ZcashSDK.spendParamFilename)
         self.outputParamsURL = dir.appendingPathComponent(ZcashSDK.outputParamFilename)
-        // Hard-coded until phase 9's ZcashServerSettingsView. Always TLS — no UI path to
-        // disable it, per the security-review decision.
-        let endpoint = LightWalletEndpoint(address: "zec.rocks", port: 443, secure: true)
+        let endpoint = ZcashSettings.endpoint
         let initializer = Initializer(
             cacheDbURL: nil,
             fsBlockDbRoot: dir.appendingPathComponent(ZcashSDK.defaultFsCacheName, isDirectory: true),

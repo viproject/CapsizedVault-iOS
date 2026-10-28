@@ -940,4 +940,40 @@ struct ZECWalletTests {
         try await waitUntil { engine.stopCount == 1 }
         KeychainHelper.deletePendingZcashViewingKey(for: walletId)
     }
+
+    // MARK: - viewingKeys (Backup ZEC)
+
+    @Test func viewingKeysReturnsLabelAndUFVKForEveryAccountIncludingAddedKeys() async throws {
+        let engine = FakeZcashEngine()
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1originalkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let addResult = await wallet.addViewingKey("uview1secondkey", label: "Second key")
+        guard case .success = addResult else {
+            Issue.record("Expected addViewingKey to succeed")
+            return
+        }
+
+        let keys = await wallet.viewingKeys()
+
+        #expect(keys.count == 2)
+        #expect(keys[0].ufvk == "uview1originalkey")
+        #expect(keys[0].isAddedViewingKey == false)
+        #expect(keys[1].ufvk == "uview1secondkey")
+        #expect(keys[1].label == "Second key")
+        #expect(keys[1].isAddedViewingKey == true)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+    }
+
+    @Test func viewingKeysReturnsEmptyBeforeActivation() async throws {
+        let wallet = ZECWallet(viewingKey: "uview1neveractivated", birthday: nil, title: "Test VO")
+        let keys = await wallet.viewingKeys()
+        #expect(keys.isEmpty)
+        KeychainHelper.deletePendingZcashViewingKey(for: wallet.walletId)
+    }
 }

@@ -14,6 +14,7 @@ struct CapsizedVaultApp: App {
     @StateObject private var authManager = AuthManager.shared
 
     init() {
+        ZcashSettings.registerDefaults()
         CoinPriceManager.shared.startPolling()
         _ = ReviewManager.shared
     }

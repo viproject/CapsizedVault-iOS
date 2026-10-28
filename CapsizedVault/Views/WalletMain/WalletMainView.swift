@@ -45,6 +45,7 @@ struct WalletMainView: View {
     @State private var showingRemoveWallet = false
     @State private var showingAppSettings = false
     @State private var showingNodeSettings = false
+    @State private var showingZcashServerSettings = false
     @State private var showingReceiveXMR = false
     @State private var showingReceiveZEC = false
     @State private var showingSendXMR = false
@@ -134,7 +135,12 @@ struct WalletMainView: View {
             settingsSheetPending = nil
             switch action {
             case .security: showingAppSettings = true
-            case .nodes: showingNodeSettings = true
+            case .nodes:
+                if walletManager.activeWallet?.zcashWallet != nil {
+                    showingZcashServerSettings = true
+                } else {
+                    showingNodeSettings = true
+                }
             case .backup: showingBackupWallet = true
             case .edit:
                 labelInput = walletManager.activeWallet?.title ?? ""
@@ -185,22 +191,9 @@ struct WalletMainView: View {
                         walletManager.clearPendingSeedBackup(for: activeWallet)
                     })
                 case .zcash(let zecWallet):
-                    let words = KeychainHelper.zcashSeed(for: zecWallet.walletId)
-                        .flatMap { String(data: $0, encoding: .utf8) }?
-                        .components(separatedBy: " ") ?? []
-                    AWSeedBackUp(
-                        words: words,
-                        passphrase: nil,
-                        backedUp: Binding(
-                            get: { !activeWallet.pendingSeedBackup },
-                            set: { backedUp in
-                                if backedUp {
-                                    walletManager.clearPendingSeedBackup(for: activeWallet)
-                                }
-                            }
-                        ),
-                        nextAction: { showingBackupWallet = false }
-                    )
+                    BackupWalletZcashView(isPresented: $showingBackupWallet, activeWallet: zecWallet, onBackedUp: {
+                        walletManager.clearPendingSeedBackup(for: activeWallet)
+                    })
                 }
             }
         }
@@ -245,6 +238,9 @@ struct WalletMainView: View {
         }
         .fullScreenCover(isPresented: $showingNodeSettings) {
             NodeSettingsView()
+        }
+        .fullScreenCover(isPresented: $showingZcashServerSettings) {
+            ZcashServerSettingsView()
         }
         .sheet(isPresented: $showingReceiveXMR) {
             ReceiveXMRView()
@@ -844,7 +840,8 @@ struct WalletMainView: View {
                     detail: error.userMessage,
                     fg: Color.dsDanger,
                     bg: Color.dsDangerSoft,
-                    action: { wallet.restartSync() }
+                    action: { wallet.restartSync() },
+                    nodeSettingsAction: { showingZcashServerSettings = true }
                 )
             }
         }
