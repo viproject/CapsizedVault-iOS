@@ -11,6 +11,9 @@ import SwiftUI
 struct AddAccountView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var accountLabel = ""
+    /// Extra context shown under the title — e.g. the Zodl/Zashi single-account warning for
+    /// a new Zcash account. `nil` for the Monero call site, which doesn't need one.
+    var footnote: String? = nil
     let onSave: (String) -> Void
 
     var body: some View {
@@ -19,6 +22,13 @@ struct AddAccountView: View {
                 .font(.system(size: 19, weight: .bold))
                 .foregroundStyle(Color.dsTextPrimary)
                 .padding(.bottom, 16)
+
+            if let footnote {
+                Text(footnote)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.dsTextTertiary)
+                    .padding(.bottom, 16)
+            }
 
             Text("ACCOUNT TITLE")
                 .font(.system(size: 12, weight: .semibold))

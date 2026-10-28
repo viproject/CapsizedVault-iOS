@@ -23,7 +23,7 @@ class RealmManager {
     private var _realm: Realm?
     private var _realmConfiguration: Realm.Configuration {
         var config = Realm.Configuration.defaultConfiguration
-        config.schemaVersion = 9
+        config.schemaVersion = 10
         config.migrationBlock = { migration, oldSchemaVersion in
             if oldSchemaVersion < 7 {
                 // Realm zero-fills new Int64 fields; explicitly set -1 (= "never synced")
@@ -45,6 +45,10 @@ class RealmManager {
                     newObject?["coin"] = Coin.monero.rawValue
                 }
             }
+            // Schema 10 adds ZcashAccountData.accountUUID (optional Data, phase 8). Realm
+            // zero-fills new optional columns to nil already, which is exactly the "no uuid
+            // yet" state `ZECWallet.activate()`'s reconciliation expects — no migration code
+            // needed.
         }
         return config
     }
@@ -255,8 +259,18 @@ class RealmManager {
 
     // MARK: - Zcash Accounts
 
+    /// Plain value snapshot of a `ZcashAccountData` row — `ZECWallet`'s reconciliation reads
+    /// a whole wallet's rows at once and shouldn't hold onto live Realm objects across the
+    /// `await`s in between.
+    struct ZcashAccountRecord {
+        let accountIndex: Int
+        let label: String
+        let isImportedViewingKey: Bool
+        let accountUUID: Data?
+    }
+
     @discardableResult
-    func saveZcashAccount(walletId: String, accountIndex: Int, label: String, isImportedViewingKey: Bool) -> Bool {
+    func saveZcashAccount(walletId: String, accountIndex: Int, label: String, isImportedViewingKey: Bool, accountUUID: Data? = nil) -> Bool {
         guard let realm = getThreadSaveRealm() else { return false }
 
         do {
@@ -267,6 +281,7 @@ class RealmManager {
                 account.label = label
                 account.isImportedViewingKey = isImportedViewingKey
                 account.createdAt = Date()
+                account.accountUUID = accountUUID
                 realm.add(account)
             }
         } catch {
@@ -281,6 +296,69 @@ class RealmManager {
         return realm.objects(ZcashAccountData.self)
             .filter("walletId == %@ AND isImportedViewingKey == true", walletId)
             .first != nil
+    }
+
+    func zcashAccounts(walletId: String) -> [ZcashAccountRecord] {
+        guard let realm = getThreadSaveRealm() else { return [] }
+        return realm.objects(ZcashAccountData.self)
+            .filter("walletId == %@", walletId)
+            .map {
+                ZcashAccountRecord(
+                    accountIndex: $0.accountIndex,
+                    label: $0.label,
+                    isImportedViewingKey: $0.isImportedViewingKey,
+                    accountUUID: $0.accountUUID
+                )
+            }
+    }
+
+    @discardableResult
+    func setZcashAccountUUID(walletId: String, accountIndex: Int, accountUUID: Data) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+        do {
+            try realm.write {
+                if let row = realm.objects(ZcashAccountData.self)
+                    .filter("walletId == %@ AND accountIndex == %@", walletId, accountIndex)
+                    .first {
+                    row.accountUUID = accountUUID
+                }
+            }
+        } catch {
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func updateZcashAccountLabel(walletId: String, accountIndex: Int, label: String) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+        do {
+            try realm.write {
+                if let row = realm.objects(ZcashAccountData.self)
+                    .filter("walletId == %@ AND accountIndex == %@", walletId, accountIndex)
+                    .first {
+                    row.label = label
+                }
+            }
+        } catch {
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    func removeZcashAccount(walletId: String, accountIndex: Int) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+        do {
+            try realm.write {
+                let rows = realm.objects(ZcashAccountData.self)
+                    .filter("walletId == %@ AND accountIndex == %@", walletId, accountIndex)
+                realm.delete(rows)
+            }
+        } catch {
+            return false
+        }
+        return true
     }
 
     // MARK: - Custom Nodes

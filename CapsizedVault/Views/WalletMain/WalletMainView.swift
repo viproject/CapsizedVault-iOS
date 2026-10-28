@@ -84,7 +84,8 @@ struct WalletMainView: View {
         }
         // --- Bottom sheets (native) ---
         .sheet(isPresented: $showingAccountSheet) {
-            if let wallet = walletManager.activeWallet?.moneroWallet {
+            switch walletManager.activeWallet?.kind {
+            case .monero(let wallet):
                 AccountSwitchSheet(
                     wallet: wallet,
                     xmrPrice: priceManager.price(for: .monero, in: .usd),
@@ -94,6 +95,18 @@ struct WalletMainView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
                 .presentationContentInteraction(.scrolls)
+            case .zcash(let wallet):
+                ZcashAccountSwitchSheet(
+                    wallet: wallet,
+                    price: priceManager.price(for: .zcash, in: .usd),
+                    balanceVisible: balanceVisible
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
+                .presentationContentInteraction(.scrolls)
+            case .none:
+                EmptyView()
             }
         }
         .sheet(isPresented: $showingWalletSheet, onDismiss: {
@@ -300,7 +313,6 @@ struct WalletMainView: View {
                 transparent: nil
             )
         let hasPending = !account.pending.isZero
-        let moneroWallet = wallet.moneroWallet
 
         return ZStack {
             Color.dsBackground.ignoresSafeArea()
@@ -311,12 +323,10 @@ struct WalletMainView: View {
                     headerRow(wallet)
                         .padding(.bottom, 18)
 
-                    // 2. Account pill (Monero only — multi-account Zcash lands in phase 8)
-                    if let moneroWallet {
-                        accountPill(moneroWallet)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
-                    }
+                    // 2. Account pill
+                    accountPill(wallet)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
 
                     // 3. Backup banner (optional)
                     if wallet.pendingSeedBackup {
@@ -450,7 +460,7 @@ struct WalletMainView: View {
     // MARK: - Account pill
 
     @ViewBuilder
-    private func accountPill(_ wallet: XMRWallet) -> some View {
+    private func accountPill(_ wallet: BaseWallet) -> some View {
         let label = wallet.accountLabel(for: wallet.activeAccountIndex)
         let initial = String(label.prefix(1)).uppercased()
 

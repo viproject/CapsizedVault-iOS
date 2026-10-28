@@ -25,7 +25,10 @@ nonisolated struct WalletTransaction: Identifiable, Equatable, Sendable {
     let isFailed: Bool
     let memo: String?
     let recipient: String?
-    let account: Int
+    /// Mutable so a coin-neutral consumer can stamp in the app-side account index after the
+    /// fact — Zcash's engine layer only knows the SDK's own account id at mapping time (see
+    /// `ZECWallet.refreshTransactions()`); Monero sets this once and never changes it.
+    var account: Int
 }
 
 nonisolated struct WalletAccountBalance: Equatable, Sendable {

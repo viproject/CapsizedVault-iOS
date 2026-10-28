@@ -25,6 +25,32 @@ enum ZcashAddressKind {
     case transparent
 }
 
+/// App-side stand-in for the SDK's `AccountUUID` — a random identifier, not key material, so
+/// it's safe to persist (`ZcashAccountData.accountUUID`) and compare across launches. Never
+/// carries enough information to reconstruct an SDK `AccountUUID` on its own; `SDKZcashEngine`
+/// keeps the live object behind this id internally.
+nonisolated struct ZcashAccountID: Hashable, Sendable {
+    let raw: Data
+}
+
+/// One account as reported by `listAccounts()`. `hdIndex` is `nil` for an imported viewing
+/// key (no ZIP-32 derivation path); `ufvk` lets callers detect a key that's already imported
+/// without ever persisting it.
+struct ZcashEngineAccount {
+    let id: ZcashAccountID
+    let hdIndex: UInt32?
+    let ufvk: String?
+}
+
+/// Atomic-unit balance for a single account, mirroring the fields `WalletAccountBalance`
+/// needs — `ZECWallet` adds the app-side index/label this engine has no concept of.
+struct ZcashEngineBalance {
+    let total: Int64
+    let spendable: Int64
+    let pending: Int64
+    let transparent: Int64
+}
+
 protocol ZcashEngine: AnyObject {
     var updates: AsyncStream<ZcashEngineUpdate> { get }
 
@@ -32,23 +58,35 @@ protocol ZcashEngine: AnyObject {
     /// or a restore height for a restored wallet. Ignored by the SDK once an account exists.
     func prepare(seed: [UInt8], birthday: Int?) async throws
     /// For a wallet with no seed. `pendingUFVK` is the viewing key to import on first
-    /// activation; subsequent activations pass `nil` since the SDK already has the account
+    /// activation; subsequent activations pass `nil` since the SDK already has the account(s)
     /// on disk. Throws `ZcashEngineError.viewingKeyMissing` if no account exists yet and
     /// `pendingUFVK` is `nil`.
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws
     func start() async throws
     /// Returns only once the SDK itself reports it has stopped.
     func stop() async
-    func accountBalance() async throws -> WalletAccountBalance?
-    func transactions(page: Int) async throws -> [WalletTransaction]
 
-    func unifiedAddress() async throws -> String
-    func transparentAddress() async throws -> String
+    /// Every account currently known to the SDK for this wallet. `ZECWallet` calls this right
+    /// after `prepare`/`prepareViewOnly` to reconcile against its persisted account rows.
+    func listAccounts() async throws -> [ZcashEngineAccount]
+    /// Derives and imports ZIP-32 account `hdIndex` from `seed` as a spending account.
+    func deriveAccount(seed: [UInt8], hdIndex: UInt32, birthday: Int?) async throws -> ZcashAccountID
+    /// Imports `ufvk` as a view-only account — the "Add viewing key" action on an already
+    /// view-only wallet. Distinct from `prepareViewOnly`'s first-activation import.
+    func importViewingKey(_ ufvk: String, birthday: Int?) async throws -> ZcashAccountID
+    /// Deletes an account and its transactions from the wallet database.
+    func deleteAccount(_ account: ZcashAccountID) async throws
+
+    func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance]
+    func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)]
+
+    func unifiedAddress(account: ZcashAccountID) async throws -> String
+    func transparentAddress(account: ZcashAccountID) async throws -> String
     /// Creates and submits a proposal shielding this account's transparent balance into the
     /// shielded pool. `seed` derives the spending key needed to sign — never called for
     /// watch-only wallets (gated by `ZECWallet.capabilities.supportsShielding`). Returns
     /// `false` if there was no transparent balance to shield.
-    func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool
+    func shieldFunds(account: ZcashAccountID, seed: [UInt8], memo: String?) async throws -> Bool
 
     /// Classifies a pasted/scanned address without building a spendable proposal — used for
     /// live address-field validation and for deciding whether to show the memo field (the SDK
@@ -56,10 +94,10 @@ protocol ZcashEngine: AnyObject {
     func classifyAddress(_ address: String) -> ZcashAddressKind
     /// Builds a transfer proposal and returns its ZIP-317 fee in zatoshi, without creating or
     /// submitting anything. Safe to call repeatedly (e.g. debounced on every keystroke).
-    func estimateFee(to address: String, amount: Int64, memo: String?) async throws -> Int64
+    func estimateFee(account: ZcashAccountID, to address: String, amount: Int64, memo: String?) async throws -> Int64
     /// Builds a fresh transfer proposal and creates + submits it. `seed` derives the spending
-    /// key, the same way `shieldFunds(seed:memo:)` already does.
-    func send(to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws
+    /// key, the same way `shieldFunds(account:seed:memo:)` already does.
+    func send(account: ZcashAccountID, to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws
     /// Proactively downloads the ~50MB Sapling parameter files this account needs for any
     /// shielded spend, if they aren't already present. `send`/`shieldFunds` already trigger
     /// this download automatically the first time it's actually needed, so this call is only
@@ -109,8 +147,16 @@ final class SDKZcashEngine: ZcashEngine {
 
     private let synchronizer: SDKSynchronizer
     private let network: NetworkType
-    private var accountUUID: AccountUUID?
-    private var hdAccountIndex: Zip32AccountIndex?
+    /// Live SDK objects behind each app-facing `ZcashAccountID` — `AccountUUID.init(id:)` is
+    /// internal to the SDK module, so this engine can only ever hand back `AccountUUID`s the
+    /// SDK itself produced (via `listAccounts`/`importAccount`/`getAccountsBalances`), never
+    /// reconstruct one from `ZcashAccountID.raw` bytes alone.
+    private var accounts: [ZcashAccountID: AccountUUID] = [:]
+    private var hdIndices: [ZcashAccountID: Zip32AccountIndex] = [:]
+    /// Captured from whichever account has ZIP-32 index 0 the last time `listAccounts()` ran
+    /// — `importAccount`'s `seedFingerprint` param ties a newly-derived account to the same
+    /// seed as account 0 without this engine ever holding the seed itself.
+    private var primarySeedFingerprint: [UInt8]?
     private var cancellables: Set<AnyCancellable> = []
     private let updatesContinuation: AsyncStream<ZcashEngineUpdate>.Continuation
 
@@ -177,21 +223,19 @@ final class SDKZcashEngine: ZcashEngine {
 
     func prepare(seed: [UInt8], birthday: Int?) async throws {
         _ = try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Account 1", keySource: nil)
-        let account = try await synchronizer.listAccounts().first
-        accountUUID = account?.id
-        hdAccountIndex = account?.hdAccountIndex
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
         _ = try await synchronizer.prepare(with: nil, walletBirthday: birthday, name: "Account 1", keySource: nil)
-        if let existing = try await synchronizer.listAccounts().first {
-            accountUUID = existing.id
+        let existing = try await synchronizer.listAccounts()
+        guard existing.isEmpty else {
+            for account in existing { remember(account.id) }
             return
         }
         guard let pendingUFVK else {
             throw ZcashEngineError.viewingKeyMissing
         }
-        accountUUID = try await synchronizer.importAccount(
+        let uuid = try await synchronizer.importAccount(
             ufvk: pendingUFVK,
             seedFingerprint: nil,
             zip32AccountIndex: nil,
@@ -200,10 +244,64 @@ final class SDKZcashEngine: ZcashEngine {
             keySource: nil,
             birthday: birthday
         )
+        remember(uuid)
     }
 
     func start() async throws {
         try await synchronizer.start(retry: true)
+    }
+
+    func listAccounts() async throws -> [ZcashEngineAccount] {
+        let sdkAccounts = try await synchronizer.listAccounts()
+        return sdkAccounts.map { account in
+            let id = remember(account.id)
+            if account.hdAccountIndex?.index == 0 {
+                primarySeedFingerprint = account.seedFingerprint
+            }
+            if let hdIndex = account.hdAccountIndex {
+                hdIndices[id] = hdIndex
+            }
+            return ZcashEngineAccount(id: id, hdIndex: account.hdAccountIndex?.index, ufvk: account.ufvk?.stringEncoded)
+        }
+    }
+
+    func deriveAccount(seed: [UInt8], hdIndex: UInt32, birthday: Int?) async throws -> ZcashAccountID {
+        let zip32Index = Zip32AccountIndex(hdIndex)
+        let tool = DerivationTool(networkType: network)
+        let usk = try tool.deriveUnifiedSpendingKey(seed: seed, accountIndex: zip32Index)
+        let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk)
+        let uuid = try await synchronizer.importAccount(
+            ufvk: ufvk.stringEncoded,
+            seedFingerprint: primarySeedFingerprint,
+            zip32AccountIndex: zip32Index,
+            purpose: .spending,
+            name: "Account \(hdIndex + 1)",
+            keySource: nil,
+            birthday: birthday
+        )
+        let id = remember(uuid)
+        hdIndices[id] = zip32Index
+        return id
+    }
+
+    func importViewingKey(_ ufvk: String, birthday: Int?) async throws -> ZcashAccountID {
+        let uuid = try await synchronizer.importAccount(
+            ufvk: ufvk,
+            seedFingerprint: nil,
+            zip32AccountIndex: nil,
+            purpose: .viewOnly,
+            name: "Imported viewing key",
+            keySource: nil,
+            birthday: birthday
+        )
+        return remember(uuid)
+    }
+
+    func deleteAccount(_ account: ZcashAccountID) async throws {
+        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
+        try await synchronizer.deleteAccount(uuid)
+        accounts[account] = nil
+        hdIndices[account] = nil
     }
 
     func stop() async {
@@ -223,44 +321,47 @@ final class SDKZcashEngine: ZcashEngine {
         timeout.cancel()
     }
 
-    func accountBalance() async throws -> WalletAccountBalance? {
-        guard let accountUUID, let balance = try await synchronizer.getAccountsBalances()[accountUUID] else { return nil }
-        let shielded = balance.shieldedTotal().amount
-        let transparent = balance.unshielded.amount
-        let spendable = balance.shieldedSpendableValue.amount
-        return WalletAccountBalance(
-            index: 0,
-            label: "Account 1",
-            total: CoinAmount(atomic: shielded + transparent, coin: .zcash),
-            spendable: CoinAmount(atomic: spendable, coin: .zcash),
-            pending: CoinAmount(atomic: shielded - spendable, coin: .zcash),
-            transparent: CoinAmount(atomic: transparent, coin: .zcash)
-        )
+    func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance] {
+        let sdkBalances = try await synchronizer.getAccountsBalances()
+        var result: [ZcashAccountID: ZcashEngineBalance] = [:]
+        for (uuid, balance) in sdkBalances {
+            let id = remember(uuid)
+            let shielded = balance.shieldedTotal().amount
+            let transparent = balance.unshielded.amount
+            let spendable = balance.shieldedSpendableValue.amount
+            result[id] = ZcashEngineBalance(
+                total: shielded + transparent,
+                spendable: spendable,
+                pending: shielded - spendable,
+                transparent: transparent
+            )
+        }
+        return result
     }
 
-    func transactions(page: Int) async throws -> [WalletTransaction] {
+    func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)] {
         let repository = synchronizer.paginatedTransactions(of: .all)
         guard let overviews = try await repository.page(page) else { return [] }
-        return overviews.map(Self.mapTransaction)
+        return overviews.map { (remember($0.accountUUID), Self.mapTransaction($0)) }
     }
 
-    func unifiedAddress() async throws -> String {
-        guard let accountUUID else { throw ZcashEngineError.noAccount }
-        return try await synchronizer.getUnifiedAddress(accountUUID: accountUUID).stringEncoded
+    func unifiedAddress(account: ZcashAccountID) async throws -> String {
+        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
+        return try await synchronizer.getUnifiedAddress(accountUUID: uuid).stringEncoded
     }
 
-    func transparentAddress() async throws -> String {
-        guard let accountUUID else { throw ZcashEngineError.noAccount }
-        return try await synchronizer.getTransparentAddress(accountUUID: accountUUID).stringEncoded
+    func transparentAddress(account: ZcashAccountID) async throws -> String {
+        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
+        return try await synchronizer.getTransparentAddress(accountUUID: uuid).stringEncoded
     }
 
-    func shieldFunds(seed: [UInt8], memo: String?) async throws -> Bool {
-        guard let accountUUID, let hdAccountIndex else { throw ZcashEngineError.noAccount }
+    func shieldFunds(account: ZcashAccountID, seed: [UInt8], memo: String?) async throws -> Bool {
+        guard let uuid = accounts[account], let hdIndex = hdIndices[account] else { throw ZcashEngineError.noAccount }
         let memoValue = try memo.map { try Memo(string: $0) } ?? Memo.empty
         // User-initiated, not an automatic sweep, so shield whatever is there rather than
         // withholding below some dust threshold.
         guard let proposal = try await synchronizer.proposeShielding(
-            accountUUID: accountUUID,
+            accountUUID: uuid,
             shieldingThreshold: .zero,
             memo: memoValue,
             transparentReceiver: nil
@@ -268,7 +369,7 @@ final class SDKZcashEngine: ZcashEngine {
             return false
         }
 
-        let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdAccountIndex)
+        let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdIndex)
         return try await submitProposal(proposal, spendingKey: usk)
     }
 
@@ -282,25 +383,34 @@ final class SDKZcashEngine: ZcashEngine {
         }
     }
 
-    func estimateFee(to address: String, amount: Int64, memo: String?) async throws -> Int64 {
-        guard let accountUUID else { throw ZcashEngineError.noAccount }
+    func estimateFee(account: ZcashAccountID, to address: String, amount: Int64, memo: String?) async throws -> Int64 {
+        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
         do {
-            let proposal = try await buildTransferProposal(accountUUID: accountUUID, address: address, amount: amount, memo: memo)
+            let proposal = try await buildTransferProposal(accountUUID: uuid, address: address, amount: amount, memo: memo)
             return proposal.totalFeeRequired().amount
         } catch {
             throw Self.mapToWalletError(error)
         }
     }
 
-    func send(to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws {
-        guard let accountUUID, let hdAccountIndex else { throw ZcashEngineError.noAccount }
+    func send(account: ZcashAccountID, to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws {
+        guard let uuid = accounts[account], let hdIndex = hdIndices[account] else { throw ZcashEngineError.noAccount }
         do {
-            let proposal = try await buildTransferProposal(accountUUID: accountUUID, address: address, amount: amount, memo: memo)
-            let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdAccountIndex)
+            let proposal = try await buildTransferProposal(accountUUID: uuid, address: address, amount: amount, memo: memo)
+            let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdIndex)
             _ = try await submitProposal(proposal, spendingKey: usk)
         } catch {
             throw Self.mapToWalletError(error)
         }
+    }
+
+    /// Records an `AccountUUID` the SDK just handed back (from `listAccounts`,
+    /// `importAccount`, or `getAccountsBalances`) under its app-facing id.
+    @discardableResult
+    private func remember(_ uuid: AccountUUID) -> ZcashAccountID {
+        let id = ZcashAccountID(raw: Data(uuid.id))
+        accounts[id] = uuid
+        return id
     }
 
     func ensureSaplingParamsDownloaded() async throws {
@@ -378,6 +488,9 @@ final class SDKZcashEngine: ZcashEngine {
         }
     }
 
+    /// `account` is left at 0 here — `ZECWallet.refreshTransactions()` is the one place that
+    /// knows the app-side index for the `ZcashAccountID` this transaction came back paired
+    /// with, and stamps it in before publishing.
     private static func mapTransaction(_ overview: ZcashTransaction.Overview) -> WalletTransaction {
         let hash = overview.rawID.reversed().map { String(format: "%02x", $0) }.joined()
         let isFailed: Bool

@@ -21,6 +21,11 @@ class ZcashAccountData: Object, Identifiable {
     @Persisted var label: String = ""
     @Persisted var isImportedViewingKey: Bool = false
     @Persisted var createdAt: Date = Date()
+    /// The SDK's `AccountUUID` raw bytes (added schema 10) — a random identifier, not key
+    /// material, kept only so `ZECWallet.activate()` can re-match this row to the right SDK
+    /// account on relaunch instead of re-deriving/re-importing it. `nil` for rows written
+    /// before schema 10; those get backfilled the first time the wallet activates again.
+    @Persisted var accountUUID: Data?
 
     // No UFVK or other key material here, ever — those are read from the Zcash SDK on
     // demand and never cached or logged. See `NodeData.credentials` for the same pattern
