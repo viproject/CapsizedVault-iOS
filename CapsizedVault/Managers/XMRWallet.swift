@@ -327,16 +327,23 @@ class XMRWallet: BaseWallet, CapsizedMoneroKitDelegate, Equatable {
         }.value
     }
 
-    private func resolveWalletPassword() -> String {
-        if let stored = KeychainHelper.walletPassword(for: walletId) {
+    private func resolveWalletPassword() -> String? {
+        switch KeychainHelper.walletPasswordLookup(for: walletId) {
+        case .found(let stored):
             return stored
+        case .unavailable:
+            // The item exists but couldn't be read right now (e.g. the device is locked) —
+            // do NOT treat this the same as "no password yet". Minting and saving a new one
+            // here would overwrite the real password this wallet's files are encrypted with.
+            return nil
+        case .notFound:
+            // Generate a cryptographically random 32-byte password and persist it
+            var bytes = [UInt8](repeating: 0, count: 32)
+            _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+            let password = bytes.map { String(format: "%02x", $0) }.joined()
+            KeychainHelper.saveWalletPassword(password, for: walletId)
+            return password
         }
-        // Generate a cryptographically random 32-byte password and persist it
-        var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        let password = bytes.map { String(format: "%02x", $0) }.joined()
-        KeychainHelper.saveWalletPassword(password, for: walletId)
-        return password
     }
 
     private func connectToWallet(_ moneroWallet: MoneroWallet, restoreHeight: UInt64? = nil, isNewWallet: Bool = false) {
@@ -358,7 +365,10 @@ class XMRWallet: BaseWallet, CapsizedMoneroKitDelegate, Equatable {
         }
 
         let height = restoreHeight ?? UInt64(RestoreHeight.getHeight(date: Date()))
-        let walletPassword = resolveWalletPassword()
+        guard let walletPassword = resolveWalletPassword() else {
+            walletError = .unknown("Wallet is locked. Unlock your device and try again.")
+            return
+        }
         #if DEBUG
         let coreLogLevel: Int32? = 4
         #else

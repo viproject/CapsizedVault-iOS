@@ -15,6 +15,8 @@ struct CapsizedVaultApp: App {
 
     init() {
         ZcashSettings.registerDefaults()
+        BackgroundSyncCoordinator.registerDefaults()
+        BackgroundSyncCoordinator.shared.registerTasks()
         CoinPriceManager.shared.startPolling()
         _ = ReviewManager.shared
     }
@@ -27,6 +29,7 @@ struct CapsizedVaultApp: App {
             switch newPhase {
             case .background:
                 authManager.appMovedToBackground()
+                BackgroundSyncCoordinator.shared.appDidEnterBackground()
             case .active:
                 authManager.appMovedToForeground()
             default:

@@ -3,6 +3,7 @@ import SwiftUI
 struct AppSettingsView: View {
 
     @StateObject private var authManager = AuthManager.shared
+    @AppStorage("backgroundSyncEnabled") private var backgroundSyncEnabled = true
     @State private var showingSetupPIN = false
     @State private var showingChangePIN = false
     @State private var showingDisableConfirm = false
@@ -38,6 +39,12 @@ struct AppSettingsView: View {
                         .padding(.top, 8)
 
                     Text("When enabled, amounts are always hidden when the app opens or returns from the background. When disabled, amounts stay in whatever state you last set them to.")
+                        .font(.system(size: 13, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.dsTextTertiary)
+                        .padding(.horizontal, 4)
+                        .padding(.top, 10)
+
+                    Text("Lets the active Zcash wallet keep syncing briefly after you leave the app, and occasionally overnight while charging on Wi-Fi. Monero wallets sync only while the app is open.")
                         .font(.system(size: 13, weight: .regular, design: .rounded))
                         .foregroundStyle(Color.dsTextTertiary)
                         .padding(.horizontal, 4)
@@ -199,14 +206,28 @@ struct AppSettingsView: View {
     // MARK: - Privacy card
 
     private var privacyCard: some View {
-        settingsRow(
-            label: "Amount hidden",
-            isLast: true,
-            toggle: Binding(
-                get: { authManager.isAmountHiddenEnabled },
-                set: { authManager.isAmountHiddenEnabled = $0 }
+        VStack(spacing: 0) {
+            settingsRow(
+                label: "Amount hidden",
+                isLast: false,
+                toggle: Binding(
+                    get: { authManager.isAmountHiddenEnabled },
+                    set: { authManager.isAmountHiddenEnabled = $0 }
+                )
             )
-        )
+
+            settingsRow(
+                label: "Background sync",
+                isLast: true,
+                toggle: Binding(
+                    get: { backgroundSyncEnabled },
+                    set: { newValue in
+                        backgroundSyncEnabled = newValue
+                        BackgroundSyncCoordinator.shared.settingChanged(newValue)
+                    }
+                )
+            )
+        }
         .background(Color.dsSurfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 22))
         .overlay(

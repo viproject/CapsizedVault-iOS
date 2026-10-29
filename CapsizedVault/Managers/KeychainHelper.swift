@@ -2,6 +2,16 @@ import Foundation
 import Security
 import CryptoKit
 
+/// Distinguishes "no item was ever saved" from "an item exists but couldn't be read right
+/// now" (e.g. the device is locked and the item uses `WhenUnlockedThisDeviceOnly`). Callers
+/// that would otherwise treat a locked-read failure as "missing" and silently create/overwrite
+/// a replacement secret should branch on this instead of a plain `String?`.
+enum KeychainLookup<T> {
+    case found(T)
+    case notFound
+    case unavailable(OSStatus)
+}
+
 enum KeychainHelper {
 
     private static let pinKey = "io.capsized.vault.pin-hash"
@@ -23,6 +33,14 @@ enum KeychainHelper {
 
     static func walletPassword(for walletId: String) -> String? {
         readItem(forKey: walletPasswordKey(walletId))
+    }
+
+    /// Same lookup as `walletPassword(for:)`, but reports *why* nothing came back — a caller
+    /// deciding whether to mint a brand-new password needs to know the item never existed
+    /// (safe to create one) versus the read being blocked by device lock (not safe: creating
+    /// one here would orphan the real password this wallet's files were encrypted with).
+    static func walletPasswordLookup(for walletId: String) -> KeychainLookup<String> {
+        lookupItem(forKey: walletPasswordKey(walletId))
     }
 
     @discardableResult
@@ -187,6 +205,31 @@ enum KeychainHelper {
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let data = result as? Data else { return nil }
         return data
+    }
+
+    /// Same query as `readItem(forKey:)`, but reports the raw `OSStatus` on failure instead of
+    /// collapsing "not found" and "couldn't read" into the same `nil`.
+    private static func lookupItem(forKey key: String) -> KeychainLookup<String> {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data, let string = String(data: data, encoding: .utf8) else {
+                return .unavailable(status)
+            }
+            return .found(string)
+        case errSecItemNotFound:
+            return .notFound
+        default:
+            return .unavailable(status)
+        }
     }
 
     @discardableResult

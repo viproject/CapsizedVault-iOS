@@ -976,4 +976,104 @@ struct ZECWalletTests {
         #expect(keys.isEmpty)
         KeychainHelper.deletePendingZcashViewingKey(for: wallet.walletId)
     }
+
+    // MARK: - waitForSyncPass (BackgroundSyncCoordinator's signal of "this pass finished")
+    //
+    // Each test starts a detached `Task` for the call under test, then sleeps briefly before
+    // triggering the status update it's waiting on. `async let`/no-sleep ordering isn't safe
+    // here: `waitForSyncPass()` and the wallet's own update-consuming loop both hop onto the
+    // same (MainActor) executor as the test body, so without a real suspension point the
+    // continuation isn't guaranteed to be registered before the status fires.
+
+    @Test func waitForSyncPassTrueAfterSyncingThenSynced() async throws {
+        let engine = FakeZcashEngine()
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let waitTask = Task { await wallet.waitForSyncPass() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        engine.sendStatus(.syncing(progress: 50, remaining: 10))
+        engine.sendStatus(.synced(height: 10))
+
+        #expect(await waitTask.value == true)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func waitForSyncPassIgnoresASyncedStatusThatArrivedBeforeTheCall() async throws {
+        let engine = FakeZcashEngine()
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        engine.sendStatus(.synced(height: 5))
+        try await waitUntil { wallet.syncStatus == .synced(height: 5) }
+
+        var resolved = false
+        let waitTask = Task {
+            let result = await wallet.waitForSyncPass()
+            resolved = true
+            return result
+        }
+
+        // The stale `.synced` above must not have resolved the call immediately.
+        try await Task.sleep(nanoseconds: 150_000_000)
+        #expect(resolved == false)
+
+        // Only a transition arriving after the call resolves it.
+        engine.sendStatus(.synced(height: 6))
+        #expect(await waitTask.value == true)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func waitForSyncPassFalseOnError() async throws {
+        let engine = FakeZcashEngine()
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let waitTask = Task { await wallet.waitForSyncPass() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        engine.sendStatus(.error(.unknown("daemon unreachable")))
+
+        #expect(await waitTask.value == false)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func waitForSyncPassFalseWhenCancelled() async throws {
+        let engine = FakeZcashEngine()
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let waitTask = Task { await wallet.waitForSyncPass() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        waitTask.cancel()
+
+        #expect(await waitTask.value == false)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func waitForSyncPassFalseOnDeactivate() async throws {
+        let engine = FakeZcashEngine()
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let waitTask = Task { await wallet.waitForSyncPass() }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        wallet.deactivate()
+
+        #expect(await waitTask.value == false)
+
+        try await waitUntil { engine.stopCount == 1 }
+    }
 }

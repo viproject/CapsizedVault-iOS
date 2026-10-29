@@ -53,6 +53,7 @@ class ZECWallet: BaseWallet {
     @Published private(set) var accountList: [ZcashAccountInfo] = []
     private var accountIDs: [Int: ZcashAccountID] = [:]
     private var hdIndices: [Int: UInt32] = [:]
+    private var syncPassContinuations: [CheckedContinuation<Bool, Never>] = []
 
     init(fromRealm realmObj: WalletsData, engineFactory: @escaping (String) -> ZcashEngine = { SDKZcashEngine(walletId: $0) }) {
         self.engineFactory = engineFactory
@@ -189,9 +190,34 @@ class ZECWallet: BaseWallet {
     override func deactivate() {
         activationTask?.cancel()
         activationTask = nil
+        resumeSyncPassWaiters(with: false)
         guard let engine else { return }
         self.engine = nil
         stopEngine(engine)
+    }
+
+    /// Awaits the next sync pass to finish, used by `BackgroundSyncCoordinator` to know when
+    /// it's safe to end a background task. A `.synced` status already in place before this is
+    /// called doesn't count — only a transition that arrives afterward, via `apply(_:)`, does.
+    func waitForSyncPass() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                syncPassContinuations.append(continuation)
+            }
+        } onCancel: { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.resumeSyncPassWaiters(with: false)
+            }
+        }
+    }
+
+    private func resumeSyncPassWaiters(with result: Bool) {
+        let continuations = syncPassContinuations
+        syncPassContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume(returning: result)
+        }
     }
 
     override func restartSync() {
@@ -526,6 +552,14 @@ class ZECWallet: BaseWallet {
         switch update {
         case .status(let status):
             syncStatus = status
+            switch status {
+            case .synced:
+                resumeSyncPassWaiters(with: true)
+            case .error:
+                resumeSyncPassWaiters(with: false)
+            default:
+                break
+            }
             guard case .synced = status else { return }
         case .transactionsChanged:
             break

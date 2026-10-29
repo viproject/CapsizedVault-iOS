@@ -6,5 +6,15 @@
 	<string>unknown</string>
 	<key>PrivacyPolicyURL</key>
 	<string>https://capsized.io/privacy</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>io.capsized.vault.background-sync</string>
+		<string>io.capsized.vault.background-sync-rearm</string>
+	</array>
 </dict>
 </plist>
