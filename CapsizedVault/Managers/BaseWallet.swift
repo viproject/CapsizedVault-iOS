@@ -56,7 +56,10 @@ class BaseWallet: ObservableObject, Identifiable {
 
     @Published var accounts: [WalletAccountBalance] = []
     @Published var transactions: [WalletTransaction] = []
-    @Published var syncStatus: WalletSyncStatus = .idle
+    /// `.connecting`, not `.idle` — before the first real update arrives, the wallet isn't
+    /// doing nothing, it's still being prepared (only `ZECWallet`'s sync card reads this;
+    /// Monero's reads its own `walletState` instead, so this default doesn't affect it).
+    @Published var syncStatus: WalletSyncStatus = .connecting
 
     init(coin: Coin) {
         self.coin = coin

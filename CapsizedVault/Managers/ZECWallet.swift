@@ -190,13 +190,21 @@ class ZECWallet: BaseWallet {
             }
             guard !Task.isCancelled else { return }
 
-            await self.loadAddresses(engine: engine)
-            guard !Task.isCancelled else { return }
+            // Loads concurrently with consuming `engine.updates` below, instead of before it —
+            // this is Receive-screen data, not needed to start reflecting real sync progress,
+            // and `engine.updates` already has whatever the SDK emitted during prepare()/start()
+            // buffered, so making the sync card wait on two more address lookups first just
+            // delays it leaving the (now `.connecting`, previously `.idle`) placeholder state
+            // for no reason. Safe to run alongside the loop below since it only touches
+            // `unifiedAddress`/`transparentAddress` — reconcile() above already finished, so
+            // `accountIDs` (which it reads) isn't being written concurrently.
+            async let addressesLoaded: Void = self.loadAddresses(engine: engine)
 
             for await update in engine.updates {
                 if Task.isCancelled { break }
                 await self.apply(update)
             }
+            _ = await addressesLoaded
         }
     }
 
