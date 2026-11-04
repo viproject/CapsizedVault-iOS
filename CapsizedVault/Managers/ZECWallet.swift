@@ -190,6 +190,14 @@ class ZECWallet: BaseWallet {
             }
             guard !Task.isCancelled else { return }
 
+            // `apply(_:)` only refreshes on `.synced`/`.transactionsChanged`, so a wallet
+            // resuming a partial sync (app killed mid-catch-up) would otherwise show nothing
+            // until the resync fully completes, even though everything scanned last session
+            // is already sitting in the SDK's local database. Load it eagerly here instead.
+            await self.refreshBalance()
+            await self.refreshTransactions()
+            guard !Task.isCancelled else { return }
+
             // Loads concurrently with consuming `engine.updates` below, instead of before it —
             // this is Receive-screen data, not needed to start reflecting real sync progress,
             // and `engine.updates` already has whatever the SDK emitted during prepare()/start()
