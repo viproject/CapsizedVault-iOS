@@ -13,6 +13,10 @@ import QRCode
 
 private enum ZcashBackupCopyStage: Equatable { case none, confirm, status, cleared }
 
+/// Only shown for full (seed) wallets — a view-only wallet only ever has viewing keys to
+/// show, so it skips the tab control entirely (see `backupContent`).
+private enum ZcashBackupTab { case seed, viewingKeys }
+
 struct BackupWalletZcashView: View {
 
     @Binding var isPresented: Bool
@@ -27,6 +31,7 @@ struct BackupWalletZcashView: View {
     @State private var showingPINAuthentication = false
     @State private var pinErrorMessage: String?
 
+    @State private var selectedTab: ZcashBackupTab = .seed
     @State private var viewingKeys: [(label: String, ufvk: String, isAddedViewingKey: Bool)] = []
     @State private var seedRevealed = false
     @State private var qrOpen = false
@@ -101,7 +106,7 @@ struct BackupWalletZcashView: View {
             Task { await authenticateForBackup() }
         }
         .task(id: hasAuthenticated) {
-            guard hasAuthenticated, activeWallet.isWatchOnly else { return }
+            guard hasAuthenticated else { return }
             viewingKeys = await activeWallet.viewingKeys()
         }
         .onChange(of: scenePhase) { phase in
@@ -109,6 +114,10 @@ struct BackupWalletZcashView: View {
                 seedRevealed = false
                 qrOpen = false
             }
+        }
+        .onChange(of: selectedTab) { _ in
+            seedRevealed = false
+            qrOpen = false
         }
     }
 
@@ -143,12 +152,23 @@ struct BackupWalletZcashView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
 
+                if !activeWallet.isWatchOnly {
+                    ZcashBackupTabControl(selected: $selectedTab)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                }
+
                 ScrollView {
                     VStack(spacing: 0) {
                         if activeWallet.isWatchOnly {
                             viewingKeysTab
                         } else {
-                            seedTab
+                            switch selectedTab {
+                            case .seed:
+                                seedTab
+                            case .viewingKeys:
+                                viewingKeysTab
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -271,7 +291,9 @@ struct BackupWalletZcashView: View {
         VStack(alignment: .leading, spacing: 10) {
             BackupWarningBanner(text: "Anyone with a viewing key can see that account's balance and incoming transactions.")
 
-            Text("Every account's viewing key in this wallet, including any added later with \"Add viewing key\".")
+            Text(activeWallet.isWatchOnly
+                ? "Every account's viewing key in this wallet, including any added later with \"Add viewing key\"."
+                : "Every account's viewing key in this wallet. Import one into another wallet to watch that account without spending access.")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.dsTextSecondary)
                 .lineSpacing(2)
@@ -314,7 +336,6 @@ struct BackupWalletZcashView: View {
                 Text(value)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Color.dsTextPrimary)
-                    .lineLimit(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
@@ -651,6 +672,44 @@ struct BackupWalletZcashView: View {
         } else {
             showingPINAuthentication = true
         }
+    }
+}
+
+// MARK: - Tab control
+
+private struct ZcashBackupTabControl: View {
+    @Binding var selected: ZcashBackupTab
+
+    private func label(for tab: ZcashBackupTab) -> String {
+        switch tab {
+        case .seed: return "Seed"
+        case .viewingKeys: return "Viewing keys"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach([ZcashBackupTab.seed, .viewingKeys], id: \.self) { tab in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) { selected = tab }
+                } label: {
+                    Text(label(for: tab))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(selected == tab ? Color.dsTextPrimary : Color.dsTextTertiary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 38)
+                        .background {
+                            if selected == tab {
+                                Capsule()
+                                    .fill(Color(.systemBackground))
+                                    .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                            }
+                        }
+                }
+            }
+        }
+        .padding(4)
+        .background(Color.dsSurface2, in: Capsule())
     }
 }
 
