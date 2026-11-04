@@ -71,21 +71,16 @@ struct AWSelectCoin: View {
 
     private func coinRow(_ coin: Coin) -> some View {
         HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color.dsAccent.opacity(0.12))
-                    .frame(width: 44, height: 44)
-                Text(coin.ticker.prefix(1))
-                    .font(.dsBodyLG)
-                    .fontWeight(.bold)
-                    .foregroundColor(.dsAccentStrong)
-            }
+            Image(coin.logoAssetName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 48, height: 48)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(coin.displayName)
+                Text("\(coin.displayName) · \(coin.ticker)")
                     .font(.dsBodyLG)
                     .foregroundColor(.dsTextPrimary)
-                Text(coin.ticker)
+                Text(tagline(coin))
                     .font(.dsBodySM)
                     .foregroundColor(.dsTextSecondary)
             }
@@ -97,9 +92,16 @@ struct AWSelectCoin: View {
                 .foregroundColor(.dsTextTertiary)
         }
         .padding(.horizontal, 16)
-        .frame(height: 72)
+        .frame(height: 84)
         .background(Color.dsSurfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func tagline(_ coin: Coin) -> String {
+        switch coin {
+        case .monero: return "Private by default"
+        case .zcash: return "Shielded transactions"
+        }
     }
 }
 

@@ -47,6 +47,14 @@ nonisolated enum Coin: String, CaseIterable, Sendable {
         case .zcash: return .zcash
         }
     }
+
+    /// Image set name in the asset catalog for this coin's logo.
+    var logoAssetName: String {
+        switch self {
+        case .monero: return "monero-xmr-logo"
+        case .zcash: return "zcash-zec-logo"
+        }
+    }
 }
 
 /// An amount of a specific coin, stored as atomic units (piconero for Monero, zatoshi for
