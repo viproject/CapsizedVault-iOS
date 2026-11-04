@@ -199,21 +199,16 @@ struct BackupWalletZcashView: View {
                 Text("Birthday Height:")
                     .font(.system(size: 14))
                     .foregroundStyle(Color.dsTextTertiary)
-                if let height = activeWallet.birthdayHeight {
-                    Text("\(height)")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.dsTextPrimary)
-                    Button {
-                        quickCopy("\(height)", field: "height")
-                    } label: {
-                        Image(systemName: copiedField == "height" ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.dsAccentStrong)
-                    }
-                } else {
-                    Text("Not set")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.dsTextPrimary)
+                let height = activeWallet.displayBirthdayHeight
+                Text("\(height)")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color.dsTextPrimary)
+                Button {
+                    quickCopy("\(height)", field: "height")
+                } label: {
+                    Image(systemName: copiedField == "height" ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.dsAccentStrong)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .center)

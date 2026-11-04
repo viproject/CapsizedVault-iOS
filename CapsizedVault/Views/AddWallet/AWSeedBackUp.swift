@@ -19,6 +19,8 @@ struct AWSeedBackUp: View {
 
     let words: [String]
     let passphrase: String?
+    /// Zcash only — `nil` for Monero, which has no equivalent shown on this screen.
+    let birthdayHeight: Int?
     @Binding var backedUp: Bool
     let nextAction: () -> Void
 
@@ -29,6 +31,15 @@ struct AWSeedBackUp: View {
     @State private var copyTarget: SeedCopyTarget? = nil
     @State private var copyStage: SeedCopyStage = .none
     @State private var countdownSeconds = 30
+    @State private var heightCopied = false
+
+    init(words: [String], passphrase: String?, birthdayHeight: Int? = nil, backedUp: Binding<Bool>, nextAction: @escaping () -> Void) {
+        self.words = words
+        self.passphrase = passphrase
+        self.birthdayHeight = birthdayHeight
+        self._backedUp = backedUp
+        self.nextAction = nextAction
+    }
 
     var body: some View {
         ZStack {
@@ -109,22 +120,39 @@ struct AWSeedBackUp: View {
                         VStack(alignment: .center, spacing: 14) {
                             SeedSectionTitle(label: "Seed Phrase Backup")
 
+                            // Zcash (signalled by birthdayHeight being set) matches the Settings
+                            // backup screen, with the copy button above the seed phrase; Monero
+                            // keeps it below, as before.
+                            if birthdayHeight != nil {
+                                copySeedPhraseButton
+                            }
+
                             seedPhraseRevealSection
 
-                            HStack {
-                                Spacer()
-                                Button {
-                                    copyTarget = .seed
-                                    copyStage = .confirm
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "doc.on.doc")
-                                            .font(.system(size: 13, weight: .semibold))
-                                        Text("Copy Seed Phrase")
-                                            .font(.dsBodyMD)
-                                            .fontWeight(.semibold)
+                            if birthdayHeight == nil {
+                                copySeedPhraseButton
+                            }
+
+                            if let birthdayHeight {
+                                HStack(spacing: 8) {
+                                    Text("Birthday Height:")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Color.dsTextTertiary)
+                                    Text("\(birthdayHeight)")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(Color.dsTextPrimary)
+                                    Button {
+                                        UIPasteboard.general.string = "\(birthdayHeight)"
+                                        heightCopied = true
+                                        Task {
+                                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                                            heightCopied = false
+                                        }
+                                    } label: {
+                                        Image(systemName: heightCopied ? "checkmark" : "doc.on.doc")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(Color.dsAccentStrong)
                                     }
-                                    .foregroundStyle(Color.dsAccentStrong)
                                 }
                             }
                         }
@@ -174,6 +202,25 @@ struct AWSeedBackUp: View {
             // Copy dialog overlay
             if copyStage != .none {
                 copyDialogOverlay
+            }
+        }
+    }
+
+    private var copySeedPhraseButton: some View {
+        HStack {
+            Spacer()
+            Button {
+                copyTarget = .seed
+                copyStage = .confirm
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Copy Seed Phrase")
+                        .font(.dsBodyMD)
+                        .fontWeight(.semibold)
+                }
+                .foregroundStyle(Color.dsAccentStrong)
             }
         }
     }

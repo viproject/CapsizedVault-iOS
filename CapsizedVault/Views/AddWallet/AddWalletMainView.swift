@@ -106,6 +106,7 @@ struct AddWalletMainView: View {
                 AWSeedBackUp(
                     words: walletVM.newZcashWalletData.words,
                     passphrase: nil,
+                    birthdayHeight: WalletManager.shared.activeWallet?.zcashWallet?.displayBirthdayHeight,
                     backedUp: Binding(
                         get: { walletVM.newZcashWalletData.backedUp },
                         set: { walletVM.newZcashWalletData.backedUp = $0 }

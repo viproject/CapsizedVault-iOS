@@ -251,6 +251,20 @@ class RealmManager {
         return true
     }
 
+    /// Backfills a Zcash wallet's birthday height the first time the SDK reports one — see
+    /// `ZECWallet.activate()`, which only calls this when `birthdayHeight` was `nil`.
+    func updateZcashBirthdayHeight(walletId: String, height: Int) -> Bool {
+        guard let realm = getThreadSaveRealm() else { return false }
+        do {
+            try realm.write {
+                for wallet in realm.objects(WalletsData.self) where wallet.walletId == walletId {
+                    wallet.birthdayHeight = height
+                }
+            }
+        } catch { return false }
+        return true
+    }
+
     func getXMRWallets () -> Results<WalletsData> {
         let realm = getThreadSaveRealm()!
         let walletsData: Results<WalletsData> = realm.objects(WalletsData.self)

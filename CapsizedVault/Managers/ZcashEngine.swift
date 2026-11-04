@@ -56,7 +56,10 @@ protocol ZcashEngine: AnyObject {
 
     /// `birthday` is `nil` for a brand-new wallet (the SDK picks a reorg-safe recent height)
     /// or a restore height for a restored wallet. Ignored by the SDK once an account exists.
-    func prepare(seed: [UInt8], birthday: Int?) async throws
+    /// Returns the height the SDK actually used as this wallet's birthday — computed by the
+    /// SDK even when `birthday` was `nil`, so `ZECWallet.activate()` can persist a real value
+    /// instead of leaving it unset.
+    func prepare(seed: [UInt8], birthday: Int?) async throws -> Int
     /// For a wallet with no seed. `pendingUFVK` is the viewing key to import on first
     /// activation; subsequent activations pass `nil` since the SDK already has the account(s)
     /// on disk. Throws `ZcashEngineError.viewingKeyMissing` if no account exists yet and
@@ -248,8 +251,9 @@ final class SDKZcashEngine: ZcashEngine {
         }.store(in: &cancellables)
     }
 
-    func prepare(seed: [UInt8], birthday: Int?) async throws {
+    func prepare(seed: [UInt8], birthday: Int?) async throws -> Int {
         _ = try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Account 1", keySource: nil)
+        return synchronizer.initializer.walletBirthday
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {

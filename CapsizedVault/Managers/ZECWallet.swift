@@ -42,6 +42,15 @@ class ZECWallet: BaseWallet {
     /// `deriveAccount(label:)`.
     private let createdAt: Date
 
+    /// `birthdayHeight` once `activate()` has backfilled it from the SDK, otherwise the same
+    /// creation-date estimate `deriveAccount` already falls back to — so the Backup screen
+    /// always has a usable height instead of "Not set" during the brief window right after
+    /// creation before that backfill lands (`birthdayHeight` isn't `@Published`, so a render
+    /// that lands before then won't refresh on its own once it does).
+    var displayBirthdayHeight: Int {
+        birthdayHeight ?? ZcashBirthday.height(for: createdAt)
+    }
+
     private let engineFactory: (String) -> ZcashEngine
     private var engine: ZcashEngine?
     private var activationTask: Task<Void, Never>?
@@ -146,7 +155,11 @@ class ZECWallet: BaseWallet {
                         self.engine = nil
                         return
                     }
-                    try await engine.prepare(seed: seedBytes, birthday: birthdayHeight)
+                    let usedBirthday = try await engine.prepare(seed: seedBytes, birthday: birthdayHeight)
+                    if birthdayHeight == nil {
+                        self.birthdayHeight = usedBirthday
+                        _ = RealmManager.shared.updateZcashBirthdayHeight(walletId: walletId, height: usedBirthday)
+                    }
                 }
             } catch {
                 guard !Task.isCancelled else { return }
