@@ -97,7 +97,6 @@ struct WalletSwitchSheet: View {
     @ViewBuilder
     private func walletRow(wallet: BaseWallet, isLast: Bool) -> some View {
         let isActive = wallet.walletId == walletManager.activeWallet?.walletId
-        let initial = String(wallet.title.prefix(1)).uppercased()
 
         // Use the cached balance (persisted to Realm after each sync update).
         // nil means the wallet has never synced; show "–" in that case.
@@ -110,15 +109,12 @@ struct WalletSwitchSheet: View {
                 dismiss()
             } label: {
                 HStack(spacing: 12) {
-                    // Avatar tile
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(isActive ? Color.dsAccent : Color.dsSurface2)
-                        Text(initial)
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(isActive ? Color.white : Color.dsTextSecondary)
-                    }
-                    .frame(width: 36, height: 36)
+                    // Coin logo tile
+                    Image(wallet.coin.logoAssetName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
                     // Name + balance
                     VStack(alignment: .leading, spacing: 2) {

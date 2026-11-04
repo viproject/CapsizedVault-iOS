@@ -396,15 +396,12 @@ struct WalletMainView: View {
                 showingWalletSheet = true
             } label: {
                 HStack(spacing: 10) {
-                    // Avatar tile
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.dsAccent)
-                        Text(String(wallet.title.prefix(1)).uppercased())
-                            .font(.dsBodyMD)
-                            .foregroundStyle(Color.white)
-                    }
-                    .frame(width: 36, height: 36)
+                    // Coin logo tile
+                    Image(wallet.coin.logoAssetName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 36, height: 36)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
                     // Labels
                     VStack(alignment: .leading, spacing: 1) {
