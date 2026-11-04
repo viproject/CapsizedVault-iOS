@@ -813,12 +813,15 @@ struct WalletMainView: View {
                     fg: Color.syncConnecting,
                     bg: Color.syncConnectingSoft
                 )
-            case .syncing(let progress, let remaining):
-                let blockSuffix = remaining > 0 ? " · \(remaining) blocks remaining" : ""
+            case .syncing(let progress, _):
+                // No "blocks remaining" suffix here, unlike Monero's sync card — the Zcash
+                // SDK derives it from `latestBlockHeight - fullyScannedHeight`, two values
+                // that advance independently (one live, one batch-updated), so it can grow
+                // even as `progress` correctly climbs. `progress` alone is the trustworthy one.
                 syncCardContent(
                     icon: "clock",
                     label: "Syncing",
-                    detail: "\(progress)% synced\(blockSuffix)",
+                    detail: "\(progress)% synced",
                     fg: Color.syncSyncing,
                     bg: Color.syncSyncingSoft
                 )
