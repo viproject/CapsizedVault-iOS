@@ -60,6 +60,10 @@ class ZECWallet: BaseWallet {
     @Published private(set) var transparentAddress: String?
     @Published private(set) var isShielding: Bool = false
     @Published private(set) var accountList: [ZcashAccountInfo] = []
+    /// Chain tip height, updated on every sync status change — unlike `syncStatus`, which only
+    /// carries a height in its `.synced` case, this stays current while still syncing too, so a
+    /// live confirmation count (`ZcashTransactionDetailsView`) stays observable throughout.
+    @Published private(set) var chainHeight: UInt64 = 0
     private var accountIDs: [Int: ZcashAccountID] = [:]
     private var hdIndices: [Int: UInt32] = [:]
     private var syncPassContinuations: [CheckedContinuation<Bool, Never>] = []
@@ -370,6 +374,13 @@ class ZECWallet: BaseWallet {
         }
     }
 
+    /// Memo/recipient/confirmations for one transaction, fetched on demand by the details
+    /// screen rather than eagerly for every row in `transactions`.
+    func transactionDetail(forHash hash: String) async throws -> ZcashTransactionDetail {
+        guard let engine else { throw ZcashEngineError.noAccount }
+        return try await engine.transactionDetail(forHash: hash)
+    }
+
     override func estimateFee(to address: String, amount: CoinAmount) async -> Result<CoinAmount, WalletError> {
         guard let engine, let accountID = accountIDs[Int(activeAccountIndex)] else { return .failure(.walletFilesMissing) }
         do {
@@ -579,8 +590,9 @@ class ZECWallet: BaseWallet {
 
     private func apply(_ update: ZcashEngineUpdate) async {
         switch update {
-        case .status(let status):
+        case .status(let status, let chainHeight):
             syncStatus = status
+            self.chainHeight = chainHeight
             switch status {
             case .synced:
                 resumeSyncPassWaiters(with: true)

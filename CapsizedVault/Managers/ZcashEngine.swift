@@ -10,9 +10,12 @@ import Foundation
 import Combine
 import ZODLSwiftWalletSDK
 
-/// Update pushed from a `ZcashEngine` to its owning `ZECWallet`.
+/// Update pushed from a `ZcashEngine` to its owning `ZECWallet`. `chainHeight` rides along with
+/// every status change — unlike `WalletSyncStatus`, which only carries a height in its
+/// `.synced` case — so a live view (e.g. a transaction's confirmation count) stays observable
+/// while the wallet is still syncing, not just once it reaches `.synced`.
 enum ZcashEngineUpdate {
-    case status(WalletSyncStatus)
+    case status(WalletSyncStatus, chainHeight: UInt64)
     case transactionsChanged
 }
 
@@ -51,6 +54,17 @@ struct ZcashEngineBalance {
     let transparent: Int64
 }
 
+/// Per-transaction detail fetched on demand (not part of the bulk `transactions(page:)` list)
+/// — memos/recipients need a separate SDK query per transaction, so eagerly loading them for
+/// every row in a long history would be wasteful. `nil` means "not present", not "failed to
+/// load". Confirmations/pending/failed are deliberately not here: those need to stay observable
+/// as the wallet keeps syncing, so the details view derives them live from `ZECWallet.chainHeight`
+/// and `ZECWallet.transactions` instead of this one-shot snapshot.
+struct ZcashTransactionDetail {
+    let memo: String?
+    let recipient: String?
+}
+
 protocol ZcashEngine: AnyObject {
     var updates: AsyncStream<ZcashEngineUpdate> { get }
 
@@ -82,6 +96,10 @@ protocol ZcashEngine: AnyObject {
 
     func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance]
     func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)]
+    /// Memo/recipient/confirmations for one transaction already seen via `transactions(page:)`
+    /// — throws `ZcashEngineError.transactionNotFound` if `hash` wasn't returned by a prior
+    /// `transactions(page:)` call this engine instance has served.
+    func transactionDetail(forHash hash: String) async throws -> ZcashTransactionDetail
 
     func unifiedAddress(account: ZcashAccountID) async throws -> String
     func transparentAddress(account: ZcashAccountID) async throws -> String
@@ -112,6 +130,7 @@ enum ZcashEngineError: LocalizedError {
     case viewingKeyMissing
     case noAccount
     case transactionSubmissionFailed(String)
+    case transactionNotFound
 
     var errorDescription: String? {
         switch self {
@@ -121,6 +140,8 @@ enum ZcashEngineError: LocalizedError {
             return "No account available yet."
         case .transactionSubmissionFailed(let description):
             return description
+        case .transactionNotFound:
+            return "Transaction not found."
         }
     }
 }
@@ -185,6 +206,10 @@ final class SDKZcashEngine: ZcashEngine {
     /// reconstruct one from `ZcashAccountID.raw` bytes alone.
     private var accounts: [ZcashAccountID: AccountUUID] = [:]
     private var hdIndices: [ZcashAccountID: Zip32AccountIndex] = [:]
+    /// Raw SDK overviews keyed by the app-facing hash, populated as `transactions(page:)` maps
+    /// them — lets `transactionDetail(forHash:)` fetch memos/recipients without a second
+    /// repository query for an `Overview` it already had in hand.
+    private var overviewByHash: [String: ZcashTransaction.Overview] = [:]
     /// Captured from whichever account has ZIP-32 index 0 the last time `listAccounts()` ran
     /// — `importAccount`'s `seedFingerprint` param ties a newly-derived account to the same
     /// seed as account 0 without this engine ever holding the seed itself.
@@ -235,7 +260,7 @@ final class SDKZcashEngine: ZcashEngine {
         synchronizer.stateStream.sink { [weak self] state in
             DispatchQueue.main.async {
                 let status = Self.mapStatus(state.syncStatus, latest: state.latestBlockHeight, scanned: state.fullyScannedHeight)
-                self?.updatesContinuation.yield(.status(status))
+                self?.updatesContinuation.yield(.status(status, chainHeight: UInt64(max(0, state.latestBlockHeight))))
             }
         }.store(in: &cancellables)
 
@@ -373,7 +398,24 @@ final class SDKZcashEngine: ZcashEngine {
     func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)] {
         let repository = synchronizer.paginatedTransactions(of: .all)
         guard let overviews = try await repository.page(page) else { return [] }
-        return overviews.map { (remember($0.accountUUID), Self.mapTransaction($0)) }
+        let currentHeight = synchronizer.latestState.latestBlockHeight
+        return overviews.map { overview in
+            let transaction = Self.mapTransaction(overview, currentHeight: currentHeight)
+            overviewByHash[transaction.hash] = overview
+            return (remember(overview.accountUUID), transaction)
+        }
+    }
+
+    func transactionDetail(forHash hash: String) async throws -> ZcashTransactionDetail {
+        guard let overview = overviewByHash[hash] else { throw ZcashEngineError.transactionNotFound }
+        let memos = (try? await synchronizer.getMemos(for: overview.rawID)) ?? []
+        let memo = memos.compactMap { $0.toString() }.first
+        let recipients = await synchronizer.getRecipients(for: overview)
+        let recipient: String? = recipients.compactMap { recipient in
+            if case .address(let address) = recipient { return address.stringEncoded }
+            return nil
+        }.first
+        return ZcashTransactionDetail(memo: memo, recipient: recipient)
     }
 
     func unifiedAddress(account: ZcashAccountID) async throws -> String {
@@ -522,10 +564,20 @@ final class SDKZcashEngine: ZcashEngine {
     /// `account` is left at 0 here — `ZECWallet.refreshTransactions()` is the one place that
     /// knows the app-side index for the `ZcashAccountID` this transaction came back paired
     /// with, and stamps it in before publishing.
-    private static func mapTransaction(_ overview: ZcashTransaction.Overview) -> WalletTransaction {
+    /// `overview.state` is never populated here — `transactions(page:)` reads from
+    /// `paginatedTransactions(of:).page(_:)`, which fetches raw repository rows and never runs
+    /// the SDK's own state-enhancement pass. `getState(for:)` recomputes the real state from
+    /// `isExpiredUmined`/`expiryHeight`/`minedHeight`, which the raw rows do carry.
+    private static func mapTransaction(_ overview: ZcashTransaction.Overview, currentHeight: BlockHeight) -> WalletTransaction {
         let hash = overview.rawID.reversed().map { String(format: "%02x", $0) }.joined()
-        let isFailed: Bool
-        if case .expired = overview.state { isFailed = true } else { isFailed = false }
+        let state = overview.getState(for: currentHeight)
+        var isPending = false
+        var isFailed = false
+        switch state {
+        case .pending: isPending = true
+        case .expired: isFailed = true
+        case .confirmed: break
+        }
         return WalletTransaction(
             hash: hash,
             type: overview.isSentTransaction ? .outgoing : .incoming,
@@ -533,7 +585,7 @@ final class SDKZcashEngine: ZcashEngine {
             fee: CoinAmount(atomic: overview.fee?.amount ?? 0, coin: .zcash),
             timestamp: Int(overview.blockTime ?? Date().timeIntervalSince1970),
             blockHeight: UInt64(overview.minedHeight ?? 0),
-            isPending: overview.minedHeight == nil,
+            isPending: isPending,
             isFailed: isFailed,
             memo: nil,
             recipient: nil,

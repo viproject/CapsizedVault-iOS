@@ -51,6 +51,7 @@ struct WalletMainView: View {
     @State private var showingSendXMR = false
     @State private var showingSendZEC = false
     @State private var selectedTransactionHash: String?
+    @State private var selectedZcashTransaction: WalletTransaction?
     @State private var labelInput = ""
     @State private var showingWatchOnlySendAlert = false
 
@@ -274,6 +275,17 @@ struct WalletMainView: View {
                let wallet = walletManager.activeWallet?.moneroWallet,
                let tx = wallet.moneroTransactions.first(where: { $0.hash == hash }) {
                 TransactionDetailsView(
+                    transaction: tx,
+                    wallet: wallet
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(20)
+            }
+        }
+        .sheet(item: $selectedZcashTransaction) { tx in
+            if let wallet = walletManager.activeWallet?.zcashWallet {
+                ZcashTransactionDetailsView(
                     transaction: tx,
                     wallet: wallet
                 )
@@ -934,6 +946,11 @@ struct WalletMainView: View {
                     VStack(spacing: 0) {
                         if isMonero {
                             Button { selectedTransactionHash = tx.hash } label: {
+                                transactionRow(tx, price: price, coin: wallet.coin, showChevron: true)
+                            }
+                            .buttonStyle(.plain)
+                        } else if wallet.zcashWallet != nil {
+                            Button { selectedZcashTransaction = tx } label: {
                                 transactionRow(tx, price: price, coin: wallet.coin, showChevron: true)
                             }
                             .buttonStyle(.plain)
