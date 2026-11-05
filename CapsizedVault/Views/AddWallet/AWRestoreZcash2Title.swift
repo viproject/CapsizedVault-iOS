@@ -17,6 +17,7 @@ struct AWRestoreZcash2Title: View {
     @State private var useRestoreDate: Bool = false
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
+    @State private var showNoBirthdaySheet: Bool = false
 
     @FocusState private var isTitleFocused: Bool
     @FocusState private var isHeightFocused: Bool
@@ -130,6 +131,18 @@ struct AWRestoreZcash2Title: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(errorMessage)
+        }
+        .sheet(isPresented: $showNoBirthdaySheet) {
+            NoBirthdayWarningSheet(
+                onConfirm: {
+                    showNoBirthdaySheet = false
+                    proceedWithRestore()
+                },
+                onCancel: { showNoBirthdaySheet = false }
+            )
+            .presentationDetents([.height(320)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
         }
     }
 
@@ -306,6 +319,15 @@ struct AWRestoreZcash2Title: View {
             }
         }
 
+        guard useRestoreHeight || useRestoreDate else {
+            showNoBirthdaySheet = true
+            return
+        }
+
+        proceedWithRestore()
+    }
+
+    private func proceedWithRestore() {
         walletVM.restoreZcashWalletData.title = trimmedTitle
         if useRestoreHeight {
             walletVM.restoreZcashWalletData.birthdayHeight = Int(restoreHeight)
@@ -316,5 +338,61 @@ struct AWRestoreZcash2Title: View {
         }
 
         nextAction()
+    }
+}
+
+// MARK: - No Birthday Warning Sheet
+
+private struct NoBirthdayWarningSheet: View {
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+
+            Text("Restore without a birthday?")
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(Color.dsTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 20)
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Color.dsTextSecondary)
+
+                Text("Without a birthday, the wallet scans the blockchain from Oct 2018. This can take a long time. If you know roughly when the wallet was created, add a birthday date or block height to sync much faster.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.dsTextSecondary)
+                    .lineSpacing(14 * 0.45)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.dsSurfaceSunken)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.top, 20)
+
+            VStack(spacing: 10) {
+                Button(action: onCancel) {
+                    Text("Add birthday")
+                }
+                .buttonStyle(.dsPrimary)
+
+                Button(action: onConfirm) {
+                    Text("Restore anyway")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color.dsTextSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 20)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 28)
     }
 }
