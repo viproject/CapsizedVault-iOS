@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import ZcashLightClientKit
+import ZODLSwiftWalletSDK
 
 struct AddViewingKeyView: View {
     @Environment(\.dismiss) private var dismiss

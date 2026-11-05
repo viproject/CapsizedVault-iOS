@@ -3,12 +3,12 @@
 //  CapsizedVault
 //
 //  The seam ZECWallet talks to the Zcash SDK through — an app-owned protocol instead of
-//  ZcashLightClientKit's `Synchronizer` directly.
+//  ZODLSwiftWalletSDK's `Synchronizer` directly.
 //
 
 import Foundation
 import Combine
-import ZcashLightClientKit
+import ZODLSwiftWalletSDK
 
 /// Update pushed from a `ZcashEngine` to its owning `ZECWallet`.
 enum ZcashEngineUpdate {

@@ -186,8 +186,8 @@
         "repositoryURL": "https://github.com/apple/swift-log.git",
         "state": {
           "branch": null,
-          "revision": "c9c6bb9d275ec0d95c3ad16391f3f045dc623104",
-          "version": "1.16.2"
+          "revision": "e3da04078777e6a1b72ce19981fbd6539b0847d8",
+          "version": "1.17.0"
         }
       },
       {
@@ -281,12 +281,12 @@
         }
       },
       {
-        "package": "ZcashLightClientKit",
-        "repositoryURL": "https://github.com/zcash/zcash-swift-wallet-sdk.git",
+        "package": "zodl-swift-wallet-sdk",
+        "repositoryURL": "https://github.com/zodl-inc/zodl-swift-wallet-sdk.git",
         "state": {
           "branch": null,
-          "revision": "2ff311c028ace8c548a2781146353dc98f4952bf",
-          "version": "4.0.0"
+          "revision": "40acb5ac77f7f9256c834e0eabf1928440a1c6c5",
+          "version": "7.0.1"
         }
       }
     ]

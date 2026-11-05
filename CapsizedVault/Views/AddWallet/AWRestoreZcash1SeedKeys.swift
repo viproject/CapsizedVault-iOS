@@ -5,7 +5,7 @@
 
 import SwiftUI
 import HdWalletKit
-import ZcashLightClientKit
+import ZODLSwiftWalletSDK
 
 struct AWRestoreZcash1SeedKeys: View {
 
