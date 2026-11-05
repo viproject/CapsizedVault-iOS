@@ -6,7 +6,7 @@
 import Testing
 import Foundation
 import CapsizedMoneroKit
-import ZcashLightClientKit
+import ZODLSwiftWalletSDK
 @testable import CapsizedVault
 
 /// Serialized: the `endpoint`-parsing tests below mutate the shared `ZcashSettings`

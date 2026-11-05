@@ -52,6 +52,7 @@ struct WalletMainView: View {
     @State private var showingSendZEC = false
     @State private var selectedTransactionHash: String?
     @State private var selectedZcashTransaction: WalletTransaction?
+    @State private var showingZcashBalancePools = false
     @State private var labelInput = ""
     @State private var showingWatchOnlySendAlert = false
 
@@ -288,6 +289,18 @@ struct WalletMainView: View {
                 ZcashTransactionDetailsView(
                     transaction: tx,
                     wallet: wallet
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(20)
+            }
+        }
+        .sheet(isPresented: $showingZcashBalancePools) {
+            if let wallet = walletManager.activeWallet?.zcashWallet {
+                ZcashBalancePoolsView(
+                    wallet: wallet,
+                    price: priceManager.price(for: .zcash, in: .usd),
+                    balanceVisible: balanceVisible
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -601,13 +614,15 @@ struct WalletMainView: View {
                 }
 
                 // Main balance figure
-                HStack(alignment: .lastTextBaseline, spacing: 8) {
-                    Text(balanceVisible ? displayValue : "••••")
-                        .font(.system(size: 34, weight: .bold).monospacedDigit())
-                        .foregroundStyle(Color.white)
-                    Text(ticker)
-                        .font(.dsBodyLG)
-                        .foregroundStyle(Color.white.opacity(0.8))
+                Group {
+                    if wallet.zcashWallet != nil {
+                        Button { showingZcashBalancePools = true } label: {
+                            balanceFigure(displayValue: displayValue, ticker: ticker)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        balanceFigure(displayValue: displayValue, ticker: ticker)
+                    }
                 }
                 .padding(.top, 8)
 
@@ -657,6 +672,19 @@ struct WalletMainView: View {
             .padding(.bottom, 24)
         }
         .clipShape(RoundedRectangle(cornerRadius: 28))
+    }
+
+    /// Extracted so the Zcash case can wrap the exact same figure in a tap target (opens
+    /// "Balance Across Pools") without duplicating its styling.
+    private func balanceFigure(displayValue: String, ticker: String) -> some View {
+        HStack(alignment: .lastTextBaseline, spacing: 8) {
+            Text(balanceVisible ? displayValue : "••••")
+                .font(.system(size: 34, weight: .bold).monospacedDigit())
+                .foregroundStyle(Color.white)
+            Text(ticker)
+                .font(.dsBodyLG)
+                .foregroundStyle(Color.white.opacity(0.8))
+        }
     }
 
     // MARK: - Quick actions

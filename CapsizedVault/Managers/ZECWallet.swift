@@ -621,7 +621,10 @@ class ZECWallet: BaseWallet {
                 total: CoinAmount(atomic: balance.total, coin: .zcash),
                 spendable: CoinAmount(atomic: balance.spendable, coin: .zcash),
                 pending: CoinAmount(atomic: balance.pending, coin: .zcash),
-                transparent: CoinAmount(atomic: balance.transparent, coin: .zcash)
+                transparent: CoinAmount(atomic: balance.transparent, coin: .zcash),
+                sapling: CoinAmount(atomic: balance.sapling, coin: .zcash),
+                orchard: CoinAmount(atomic: balance.orchard, coin: .zcash),
+                ironwood: CoinAmount(atomic: balance.ironwood, coin: .zcash)
             )
         }
         cachedTotalUnlocked = CoinAmount(atomic: total, coin: .zcash)

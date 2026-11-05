@@ -52,6 +52,13 @@ struct ZcashEngineBalance {
     let spendable: Int64
     let pending: Int64
     let transparent: Int64
+    /// Per-pool totals, for the "Balance Across Pools" breakdown — `sapling + orchard +
+    /// ironwood + transparent` always equals `total`. `ironwood` is 0 everywhere except a
+    /// NU6.3-active network with Ironwood support. `var` (not `let`) so the default value
+    /// still becomes an overridable parameter in the synthesized memberwise init.
+    var sapling: Int64 = 0
+    var orchard: Int64 = 0
+    var ironwood: Int64 = 0
 }
 
 /// Per-transaction detail fetched on demand (not part of the bulk `transactions(page:)` list)
@@ -389,7 +396,10 @@ final class SDKZcashEngine: ZcashEngine {
                 total: shielded + transparent,
                 spendable: spendable,
                 pending: shielded - spendable,
-                transparent: transparent
+                transparent: transparent,
+                sapling: balance.saplingBalance.total().amount,
+                orchard: balance.orchardBalance.total().amount,
+                ironwood: balance.ironwoodBalance.total().amount
             )
         }
         return result

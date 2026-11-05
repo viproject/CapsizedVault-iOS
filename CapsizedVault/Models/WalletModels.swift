@@ -39,6 +39,13 @@ nonisolated struct WalletAccountBalance: Equatable, Sendable {
     let pending: CoinAmount
     /// Unshielded balance for this account. `nil` for coins with no transparent pool (Monero).
     let transparent: CoinAmount?
+    /// Per-pool balances for the "Balance Across Pools" breakdown. `nil` for coins with no
+    /// shielded pools (Monero); `sapling + orchard + ironwood + transparent == total` for Zcash.
+    /// `var` (not `let`) so the default value still becomes an overridable parameter in the
+    /// synthesized memberwise init.
+    var sapling: CoinAmount? = nil
+    var orchard: CoinAmount? = nil
+    var ironwood: CoinAmount? = nil
 }
 
 nonisolated enum WalletSyncStatus: Equatable, Sendable {

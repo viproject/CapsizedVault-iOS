@@ -90,7 +90,7 @@ private final class FakeZcashEngine: ZcashEngine {
         self.continuation = continuation
     }
 
-    func prepare(seed: [UInt8], birthday: Int?) async throws {
+    func prepare(seed: [UInt8], birthday: Int?) async throws -> Int {
         if prepareDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: prepareDelayNanoseconds)
         }
@@ -98,6 +98,7 @@ private final class FakeZcashEngine: ZcashEngine {
         if fakeAccounts.isEmpty {
             fakeAccounts = [ZcashEngineAccount(id: FakeZcashEngine.primaryAccountID, hdIndex: 0, ufvk: nil)]
         }
+        return birthday ?? 0
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
@@ -172,6 +173,13 @@ private final class FakeZcashEngine: ZcashEngine {
         pagesByAccount.indices.contains(page) ? pagesByAccount[page] : []
     }
 
+    var transactionDetailByHash: [String: ZcashTransactionDetail] = [:]
+
+    func transactionDetail(forHash hash: String) async throws -> ZcashTransactionDetail {
+        guard let detail = transactionDetailByHash[hash] else { throw ZcashEngineError.transactionNotFound }
+        return detail
+    }
+
     func unifiedAddress(account: ZcashAccountID) async throws -> String {
         fakeUnifiedAddress
     }
@@ -226,8 +234,8 @@ private final class FakeZcashEngine: ZcashEngine {
         }
     }
 
-    func sendStatus(_ status: WalletSyncStatus) {
-        continuation.yield(.status(status))
+    func sendStatus(_ status: WalletSyncStatus, chainHeight: UInt64 = 0) {
+        continuation.yield(.status(status, chainHeight: chainHeight))
     }
 
     func sendTransactionsChanged() {
