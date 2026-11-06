@@ -108,7 +108,7 @@ struct ZcashAccountSwitchSheet: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(28)
             } else {
-                AddAccountView(footnote: "Zodl/Zashi only show Account 1 when you restore this seed there — accounts created here won't appear.") { label in
+                AddAccountView(footnote: "Other wallets could only show Account 1 when you restore this seed there — accounts created here won't appear.") { label in
                     runMutation { await wallet.deriveAccount(label: label) }
                 }
                 .presentationDetents([.height(400)])

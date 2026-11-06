@@ -11,7 +11,7 @@ import SwiftUI
 struct AddAccountView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var accountLabel = ""
-    /// Extra context shown under the title — e.g. the Zodl/Zashi single-account warning for
+    /// Extra context shown under the title — e.g. the single-account warning for
     /// a new Zcash account. `nil` for the Monero call site, which doesn't need one.
     var footnote: String? = nil
     let onSave: (String) -> Void
@@ -19,25 +19,25 @@ struct AddAccountView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("New account")
-                .font(.system(size: 19, weight: .bold))
+                .font(.dsHeadingSM)
                 .foregroundStyle(Color.dsTextPrimary)
                 .padding(.bottom, 16)
 
             if let footnote {
                 Text(footnote)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.dsTextTertiary)
+                    .font(.dsCaption2Reg)
+                    .foregroundStyle(Color.dsTextSecondary)
                     .padding(.bottom, 16)
             }
 
             Text("ACCOUNT TITLE")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.dsCaption)
                 .foregroundStyle(Color.dsTextSecondary)
                 .kerning(0.4)
                 .padding(.bottom, 8)
 
             TextField("e.g. Savings", text: $accountLabel)
-                .font(.system(size: 16))
+                .font(.dsInputMD)
                 .padding(14)
                 .background(Color.dsSurface2)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -45,8 +45,8 @@ struct AddAccountView: View {
                 .padding(.bottom, 8)
 
             Text("This name is only visible to you.")
-                .font(.system(size: 12))
-                .foregroundStyle(Color.dsTextTertiary)
+                .font(.dsCaption2Reg)
+                .foregroundStyle(Color.dsTextSecondary)
                 .padding(.bottom, 20)
 
             Button("Create account") {
