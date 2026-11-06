@@ -40,10 +40,6 @@ struct ZcashBalancePoolsView: View {
         return "≈ \(String(format: "$%.2f", account.total.fiat(price: price))) USD"
     }
 
-    private var showIronwoodRow: Bool {
-        !(account.ironwood?.isZero ?? true)
-    }
-
     // MARK: - Body
 
     var body: some View {
@@ -106,10 +102,8 @@ struct ZcashBalancePoolsView: View {
         VStack(spacing: 0) {
             detailRow(label: "Transparent", value: amountText(account.transparent), isLast: false)
             detailRow(label: "Sapling", value: amountText(account.sapling), isLast: false)
-            detailRow(label: "Orchard", value: amountText(account.orchard), isLast: !showIronwoodRow)
-            if showIronwoodRow {
-                detailRow(label: "Ironwood", value: amountText(account.ironwood), isLast: true)
-            }
+            detailRow(label: "Orchard", value: amountText(account.orchard), isLast: false)
+            detailRow(label: "Ironwood", value: amountText(account.ironwood), isLast: true)
         }
         .background(Color.dsSurfaceRaised)
         .clipShape(RoundedRectangle(cornerRadius: 18))
