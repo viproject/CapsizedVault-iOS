@@ -17,11 +17,6 @@ import HdWalletKit
 nonisolated struct ZcashAccountInfo: Identifiable, Equatable, Sendable {
     let index: Int
     var label: String
-    /// True for a viewing key imported into an already-existing view-only wallet via "Add
-    /// viewing key" — never true for index 0, which is always the key the wallet was created
-    /// from. Drives the "Added key" badge so a pasted third-party UFVK can't be mistaken for
-    /// the wallet's own account.
-    let isAddedViewingKey: Bool
     var id: Int { index }
 }
 
@@ -124,7 +119,7 @@ class ZECWallet: BaseWallet {
             supportsSubaddresses: false,
             hasTransparentPool: true,
             supportsShielding: !isWatchOnly, // needs the spending key — no seed for view-only wallets.
-            accountCreation: isWatchOnly ? .importViewingKey : .derive,
+            supportsMultipleAccounts: !isWatchOnly,
             supportsMemo: true,
             supportsSendPriority: false,
             canSend: !isWatchOnly
@@ -177,9 +172,9 @@ class ZECWallet: BaseWallet {
             // Re-derive from Realm now that reconcile() may have just backfilled a missing
             // account-0 row (e.g. a wallet whose row predates this bookkeeping existing at
             // all) — otherwise a wallet like that keeps showing as a regular seed wallet
-            // (Send enabled, "Create new account" instead of "Add viewing key") for this
-            // entire session, only self-correcting on the next full relaunch once
-            // `init(fromRealm:)` re-reads the now-repaired row.
+            // (Send enabled, multi-account switcher visible) for this entire session, only
+            // self-correcting on the next full relaunch once `init(fromRealm:)` re-reads the
+            // now-repaired row.
             self.setWatchOnly(RealmManager.shared.isImportedViewingKeyWallet(walletId: walletId))
             self.ensureActiveAccountIndexIsValid()
             guard !Task.isCancelled else { return }
@@ -315,54 +310,9 @@ class ZECWallet: BaseWallet {
         }
     }
 
-    /// Imports another UFVK into an already view-only wallet ("Add viewing key"). Rejects a
-    /// key already in this wallet rather than silently importing a duplicate account.
-    /// `birthday` falls back to Sapling activation, same as the initial view-only import.
-    func addViewingKey(_ ufvk: String, label: String, birthday: Int? = nil) async -> Result<Void, WalletError> {
-        guard isWatchOnly else { return .failure(.unknown("Only view-only wallets can import a viewing key.")) }
-        guard let engine else { return .failure(.walletFilesMissing) }
-
-        if let existing = try? await engine.listAccounts(), existing.contains(where: { $0.ufvk == ufvk }) {
-            return .failure(.duplicateViewingKey)
-        }
-
-        do {
-            let id = try await engine.importViewingKey(ufvk, birthday: birthday ?? 419_200)
-            let newIndex = (accountList.map(\.index).max() ?? -1) + 1
-            RealmManager.shared.saveZcashAccount(walletId: walletId, accountIndex: newIndex, label: label, isImportedViewingKey: true, accountUUID: id.raw)
-            await reconcile(engine: engine)
-            setActiveAccountIndex(newIndex)
-            await refreshBalance()
-            return .success(())
-        } catch {
-            return .failure(ZECWallet.mapSendError(error))
-        }
-    }
-
-    /// Removes an imported viewing key's account — never the last account in the wallet, and
-    /// never on a seed wallet (there's no "remove" for a derived account, same as Monero).
-    func removeViewingKey(accountIndex: Int) async -> Result<Void, WalletError> {
-        guard isWatchOnly else { return .failure(.unknown("Only view-only wallets can remove a viewing key.")) }
-        guard accountList.count > 1 else { return .failure(.unknown("Can't remove the last account in a wallet.")) }
-        guard let engine, let id = accountIDs[accountIndex] else { return .failure(.walletFilesMissing) }
-
-        do {
-            try await engine.deleteAccount(id)
-        } catch {
-            return .failure(ZECWallet.mapSendError(error))
-        }
-
-        RealmManager.shared.removeZcashAccount(walletId: walletId, accountIndex: accountIndex)
-        await reconcile(engine: engine)
-        ensureActiveAccountIndexIsValid()
-        await refreshBalance()
-        return .success(())
-    }
-
     /// Every account's label and UFVK, for the Backup screen's "Viewing keys" list on a
-    /// view-only wallet. Never persisted — always re-read from the live engine, same as
-    /// `addViewingKey`'s duplicate-check.
-    func viewingKeys() async -> [(label: String, ufvk: String, isAddedViewingKey: Bool)] {
+    /// view-only wallet. Never persisted — always re-read from the live engine.
+    func viewingKeys() async -> [(label: String, ufvk: String)] {
         guard let engine, let sdkAccounts = try? await engine.listAccounts() else { return [] }
         var ufvkByID: [ZcashAccountID: String] = [:]
         for account in sdkAccounts {
@@ -370,7 +320,7 @@ class ZECWallet: BaseWallet {
         }
         return accountList.compactMap { info in
             guard let id = accountIDs[info.index], let ufvk = ufvkByID[id] else { return nil }
-            return (label: info.label, ufvk: ufvk, isAddedViewingKey: info.isAddedViewingKey)
+            return (label: info.label, ufvk: ufvk)
         }
     }
 
@@ -497,8 +447,7 @@ class ZECWallet: BaseWallet {
     ///    unmatched SDK account, backfilling its uuid.
     ///  - no row at all (every pre-phase-8 seed wallet, which never wrote one): a new row is
     ///    created.
-    ///  - a row whose account the SDK no longer has (e.g. a crash between `deleteAccount` and
-    ///    the matching Realm delete in `removeViewingKey`): pruned.
+    ///  - a row whose account the SDK no longer has: pruned.
     /// Called after every `prepare`/`prepareViewOnly` in `activate()`, and again after any
     /// account-mutating call, so the UI never has to reconcile anything itself.
     private func reconcile(engine: ZcashEngine) async {
@@ -514,7 +463,7 @@ class ZECWallet: BaseWallet {
         func adopt(_ account: ZcashEngineAccount, appIndex: Int, label: String) {
             ids[appIndex] = account.id
             if let hdIndex = account.hdIndex { hdIndicesByApp[appIndex] = hdIndex }
-            infos.append(ZcashAccountInfo(index: appIndex, label: label, isAddedViewingKey: isWatchOnly && appIndex != 0))
+            infos.append(ZcashAccountInfo(index: appIndex, label: label))
         }
 
         var unmatched: [ZcashEngineAccount] = []

@@ -14,7 +14,6 @@ nonisolated enum WalletError: Error, Equatable, Sendable {
     case torUnavailable
     case walletFilesMissing
     case recoveryFailed(String)
-    case duplicateViewingKey
     case paramsDownloadFailed
     case unknown(String)
 
@@ -32,8 +31,6 @@ nonisolated enum WalletError: Error, Equatable, Sendable {
             return "Wallet files are missing or corrupted. Please restore the wallet from seed, keys, or a view key."
         case .recoveryFailed(let message):
             return "Wallet recovery failed: \(message)"
-        case .duplicateViewingKey:
-            return "This viewing key is already in this wallet."
         case .paramsDownloadFailed:
             return "Could not download the files needed to send. Check your connection and try again."
         case .unknown(let message):

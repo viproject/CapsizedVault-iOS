@@ -95,11 +95,6 @@ protocol ZcashEngine: AnyObject {
     func listAccounts() async throws -> [ZcashEngineAccount]
     /// Derives and imports ZIP-32 account `hdIndex` from `seed` as a spending account.
     func deriveAccount(seed: [UInt8], hdIndex: UInt32, birthday: Int?) async throws -> ZcashAccountID
-    /// Imports `ufvk` as a view-only account — the "Add viewing key" action on an already
-    /// view-only wallet. Distinct from `prepareViewOnly`'s first-activation import.
-    func importViewingKey(_ ufvk: String, birthday: Int?) async throws -> ZcashAccountID
-    /// Deletes an account and its transactions from the wallet database.
-    func deleteAccount(_ account: ZcashAccountID) async throws
 
     func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance]
     func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)]
@@ -345,26 +340,6 @@ final class SDKZcashEngine: ZcashEngine {
         let id = remember(uuid)
         hdIndices[id] = zip32Index
         return id
-    }
-
-    func importViewingKey(_ ufvk: String, birthday: Int?) async throws -> ZcashAccountID {
-        let uuid = try await synchronizer.importAccount(
-            ufvk: ufvk,
-            seedFingerprint: nil,
-            zip32AccountIndex: nil,
-            purpose: .viewOnly,
-            name: "Imported viewing key",
-            keySource: nil,
-            birthday: birthday
-        )
-        return remember(uuid)
-    }
-
-    func deleteAccount(_ account: ZcashAccountID) async throws {
-        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
-        try await synchronizer.deleteAccount(uuid)
-        accounts[account] = nil
-        hdIndices[account] = nil
     }
 
     func stop() async {

@@ -344,10 +344,12 @@ struct WalletMainView: View {
                     headerRow(wallet)
                         .padding(.bottom, 18)
 
-                    // 2. Account pill
-                    accountPill(wallet)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
+                    // 2. Account pill (only for wallets that can have more than one account)
+                    if wallet.capabilities.supportsMultipleAccounts {
+                        accountPill(wallet)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.bottom, wallet.pendingSeedBackup ? 16 : 24)
+                    }
 
                     // 3. Backup banner (optional)
                     if wallet.pendingSeedBackup {
@@ -355,8 +357,10 @@ struct WalletMainView: View {
                             .padding(.bottom, 24)
                     }
 
-                    // 4. Balance card
+                    // 4. Balance card (no account pill above it on a ZEC view-only wallet, so
+                    // it needs its own top padding instead)
                     balanceCard(wallet, account: account, price: price, hasPending: hasPending)
+                        .padding(.top, wallet.capabilities.supportsMultipleAccounts ? 0 : 30)
                         .padding(.bottom, 8)
 
                     // 4a. View-only balance disclaimer

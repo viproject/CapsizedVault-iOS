@@ -73,15 +73,8 @@ private final class FakeZcashEngine: ZcashEngine {
     private(set) var lastDeriveHDIndex: UInt32?
     private(set) var lastDeriveBirthday: Int?
     var deriveAccountError: Error?
-    private(set) var importViewingKeyCount = 0
-    private(set) var lastImportedUFVK: String?
-    private(set) var lastImportBirthday: Int?
-    var importViewingKeyError: Error?
-    private(set) var deleteAccountCount = 0
-    private(set) var lastDeletedAccount: ZcashAccountID?
-    var deleteAccountError: Error?
-    /// Monotonically-increasing id handed out by `deriveAccount`/`importViewingKey`, distinct
-    /// from `primaryAccountID`.
+    /// Monotonically-increasing id handed out by `deriveAccount`, distinct from
+    /// `primaryAccountID`.
     private var nextSyntheticAccountByte: UInt8 = 1
 
     init() {
@@ -140,29 +133,6 @@ private final class FakeZcashEngine: ZcashEngine {
         nextSyntheticAccountByte += 1
         fakeAccounts.append(ZcashEngineAccount(id: id, hdIndex: hdIndex, ufvk: nil))
         return id
-    }
-
-    func importViewingKey(_ ufvk: String, birthday: Int?) async throws -> ZcashAccountID {
-        importViewingKeyCount += 1
-        lastImportedUFVK = ufvk
-        lastImportBirthday = birthday
-        if let importViewingKeyError {
-            throw importViewingKeyError
-        }
-        let id = ZcashAccountID(raw: Data([nextSyntheticAccountByte]))
-        nextSyntheticAccountByte += 1
-        fakeAccounts.append(ZcashEngineAccount(id: id, hdIndex: nil, ufvk: ufvk))
-        return id
-    }
-
-    func deleteAccount(_ account: ZcashAccountID) async throws {
-        deleteAccountCount += 1
-        lastDeletedAccount = account
-        if let deleteAccountError {
-            throw deleteAccountError
-        }
-        fakeAccounts.removeAll { $0.id == account }
-        balancesByAccount[account] = nil
     }
 
     func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance] {
@@ -391,7 +361,7 @@ struct ZECWalletTests {
 
         #expect(wallet.isWatchOnly == true)
         #expect(wallet.capabilities.canSend == false)
-        #expect(wallet.capabilities.accountCreation == .importViewingKey)
+        #expect(wallet.capabilities.supportsMultipleAccounts == false)
 
         wallet.activate()
         try await waitUntil { engine.startCount == 1 }
@@ -716,6 +686,7 @@ struct ZECWalletTests {
     @Test func deriveAccountAddsAccountAndSwitchesToIt() async throws {
         let engine = FakeZcashEngine()
         let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: 500_000, title: "Test", engineFactory: { _ in engine })
+        #expect(wallet.capabilities.supportsMultipleAccounts == true)
         wallet.activate()
         try await waitUntil { engine.startCount == 1 }
 
@@ -773,149 +744,15 @@ struct ZECWalletTests {
         KeychainHelper.deletePendingZcashViewingKey(for: walletId)
     }
 
-    @Test func addViewingKeyRejectsDuplicateUFVK() async throws {
-        let engine = FakeZcashEngine()
-        let walletId = UUID().uuidString
-        let wallet = ZECWallet(viewingKey: "uview1existingkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        let result = await wallet.addViewingKey("uview1existingkey", label: "Duplicate")
-
-        #expect(engine.importViewingKeyCount == 0)
-        if case .failure(let error) = result {
-            #expect(error == .duplicateViewingKey)
-        } else {
-            Issue.record("Expected failure")
-        }
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
-    }
-
-    @Test func addViewingKeySucceedsAndIsMarkedAsAddedKey() async throws {
-        let engine = FakeZcashEngine()
-        let walletId = UUID().uuidString
-        let wallet = ZECWallet(viewingKey: "uview1originalkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        let result = await wallet.addViewingKey("uview1differentkey", label: "Second key")
-
-        if case .failure = result {
-            Issue.record("Expected success")
-        }
-        #expect(engine.importViewingKeyCount == 1)
-        #expect(engine.lastImportedUFVK == "uview1differentkey")
-        #expect(wallet.numberOfAccounts() == 2)
-        #expect(wallet.activeAccountIndex == 1)
-
-        let rows = RealmManager.shared.zcashAccounts(walletId: walletId)
-        #expect(rows.first(where: { $0.accountIndex == 1 })?.isImportedViewingKey == true)
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
-    }
-
-    @Test func addViewingKeyFailsOnSeedWallet() async throws {
-        let engine = FakeZcashEngine()
-        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        let result = await wallet.addViewingKey("uview1whatever", label: "Nope")
-
-        #expect(engine.importViewingKeyCount == 0)
-        if case .failure = result {
-            // expected
-        } else {
-            Issue.record("Expected failure")
-        }
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-    }
-
-    @Test func removeViewingKeyRefusesLastAccount() async throws {
-        let engine = FakeZcashEngine()
-        let walletId = UUID().uuidString
-        let wallet = ZECWallet(viewingKey: "uview1onlykey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        let result = await wallet.removeViewingKey(accountIndex: 0)
-
-        #expect(engine.deleteAccountCount == 0)
-        if case .failure = result {
-            // expected
-        } else {
-            Issue.record("Expected failure")
-        }
-        #expect(wallet.numberOfAccounts() == 1)
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
-    }
-
-    @Test func removeViewingKeyRefusesOnSeedWallet() async throws {
-        let engine = FakeZcashEngine()
-        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        let result = await wallet.removeViewingKey(accountIndex: 0)
-
-        #expect(engine.deleteAccountCount == 0)
-        if case .failure = result {
-            // expected
-        } else {
-            Issue.record("Expected failure")
-        }
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-    }
-
-    @Test func removeViewingKeyDeletesAndFallsBackActiveAccount() async throws {
-        let engine = FakeZcashEngine()
-        let walletId = UUID().uuidString
-        let wallet = ZECWallet(viewingKey: "uview1firstkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
-        wallet.activate()
-        try await waitUntil { engine.startCount == 1 }
-
-        _ = await wallet.addViewingKey("uview1secondkey", label: "Second")
-        #expect(wallet.activeAccountIndex == 1)
-
-        let result = await wallet.removeViewingKey(accountIndex: 1)
-
-        if case .failure = result {
-            Issue.record("Expected success")
-        }
-        #expect(engine.deleteAccountCount == 1)
-        #expect(wallet.numberOfAccounts() == 1)
-        #expect(wallet.activeAccountIndex == 0)
-
-        let rows = RealmManager.shared.zcashAccounts(walletId: walletId)
-        #expect(rows.count == 1)
-
-        wallet.deactivate()
-        try await waitUntil { engine.stopCount == 1 }
-        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
-    }
-
     @Test func multiAccountBalancesSumIntoCachedTotalAndTransactionsStampedWithAccountIndex() async throws {
         let engine = FakeZcashEngine()
-        let walletId = UUID().uuidString
-        let wallet = ZECWallet(viewingKey: "uview1multiaccount", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
         wallet.activate()
         try await waitUntil { engine.startCount == 1 }
 
-        let addResult = await wallet.addViewingKey("uview1secondaccount", label: "Second")
-        guard case .success = addResult else {
-            Issue.record("Expected addViewingKey to succeed")
+        let deriveResult = await wallet.deriveAccount(label: "Second")
+        guard case .success = deriveResult else {
+            Issue.record("Expected deriveAccount to succeed")
             return
         }
         let secondAccountID = engine.fakeAccounts.last!.id
@@ -946,32 +783,21 @@ struct ZECWalletTests {
 
         wallet.deactivate()
         try await waitUntil { engine.stopCount == 1 }
-        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
     }
 
     // MARK: - viewingKeys (Backup ZEC)
 
-    @Test func viewingKeysReturnsLabelAndUFVKForEveryAccountIncludingAddedKeys() async throws {
+    @Test func viewOnlyWalletViewingKeysHasItsOneAccount() async throws {
         let engine = FakeZcashEngine()
         let walletId = UUID().uuidString
         let wallet = ZECWallet(viewingKey: "uview1originalkey", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
         wallet.activate()
         try await waitUntil { engine.startCount == 1 }
 
-        let addResult = await wallet.addViewingKey("uview1secondkey", label: "Second key")
-        guard case .success = addResult else {
-            Issue.record("Expected addViewingKey to succeed")
-            return
-        }
-
         let keys = await wallet.viewingKeys()
 
-        #expect(keys.count == 2)
+        try #require(keys.count == 1)
         #expect(keys[0].ufvk == "uview1originalkey")
-        #expect(keys[0].isAddedViewingKey == false)
-        #expect(keys[1].ufvk == "uview1secondkey")
-        #expect(keys[1].label == "Second key")
-        #expect(keys[1].isAddedViewingKey == true)
 
         wallet.deactivate()
         try await waitUntil { engine.stopCount == 1 }

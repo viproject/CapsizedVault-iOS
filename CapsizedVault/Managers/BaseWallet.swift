@@ -14,19 +14,12 @@ enum WalletKind {
 
 /// Flags shared views read instead of checking `wallet.coin == ...`.
 struct WalletCapabilities {
-    enum AccountCreation {
-        /// New accounts are derived from the seed (Monero, and Zcash spending wallets).
-        case derive
-        /// New accounts can only be added by importing another viewing key (Zcash view-only).
-        case importViewingKey
-        /// This wallet can't add accounts at all.
-        case none
-    }
-
     var supportsSubaddresses: Bool = false
     var hasTransparentPool: Bool = false
     var supportsShielding: Bool = false
-    var accountCreation: AccountCreation = .none
+    /// Whether this wallet can have more than one account. `false` for Zcash view-only
+    /// wallets, which are always a single account.
+    var supportsMultipleAccounts: Bool = false
     var supportsMemo: Bool = false
     var supportsSendPriority: Bool = false
     var canSend: Bool = true

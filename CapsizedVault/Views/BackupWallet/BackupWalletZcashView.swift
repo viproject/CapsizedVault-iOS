@@ -32,7 +32,7 @@ struct BackupWalletZcashView: View {
     @State private var pinErrorMessage: String?
 
     @State private var selectedTab: ZcashBackupTab = .seed
-    @State private var viewingKeys: [(label: String, ufvk: String, isAddedViewingKey: Bool)] = []
+    @State private var viewingKeys: [(label: String, ufvk: String)] = []
     @State private var seedRevealed = false
     @State private var qrOpen = false
 
@@ -292,7 +292,7 @@ struct BackupWalletZcashView: View {
             BackupWarningBanner(text: "Anyone with a viewing key can see that account's balance and incoming transactions.")
 
             Text(activeWallet.isWatchOnly
-                ? "Every account's viewing key in this wallet, including any added later with \"Add viewing key\"."
+                ? "This wallet's viewing key."
                 : "Every account's viewing key in this wallet. Import one into another wallet to watch that account without spending access.")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.dsTextSecondary)
@@ -308,29 +308,18 @@ struct BackupWalletZcashView: View {
                 .padding(.vertical, 24)
             } else {
                 ForEach(viewingKeys, id: \.ufvk) { entry in
-                    zcashKeyRow(label: entry.label, isAddedViewingKey: entry.isAddedViewingKey, value: entry.ufvk)
+                    zcashKeyRow(label: entry.label, value: entry.ufvk)
                 }
             }
         }
     }
 
-    private func zcashKeyRow(label: String, isAddedViewingKey: Bool, value: String) -> some View {
+    private func zcashKeyRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text(label.uppercased())
-                    .font(.system(size: 11, weight: .bold))
-                    .kerning(0.5)
-                    .foregroundStyle(Color.dsTextTertiary)
-                if isAddedViewingKey {
-                    Text("Added key")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color.dsAccentStrong)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.dsJadeSoft)
-                        .clipShape(Capsule())
-                }
-            }
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .bold))
+                .kerning(0.5)
+                .foregroundStyle(Color.dsTextTertiary)
 
             HStack(alignment: .top, spacing: 10) {
                 Text(value)

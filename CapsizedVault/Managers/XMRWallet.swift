@@ -222,7 +222,7 @@ class XMRWallet: BaseWallet, CapsizedMoneroKitDelegate, Equatable {
             supportsSubaddresses: true,
             hasTransparentPool: false,
             supportsShielding: false,
-            accountCreation: .derive,
+            supportsMultipleAccounts: true,
             supportsMemo: true,
             supportsSendPriority: true,
             canSend: !isWatchOnly

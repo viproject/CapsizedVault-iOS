@@ -2,8 +2,9 @@
 //  ZcashAccountSwitchSheet.swift
 //  CapsizedVault
 //
-//  Bottom sheet: switch between accounts within the current Zcash wallet, derive a new
-//  account (seed wallets), or add/remove an imported viewing key (view-only wallets).
+//  Bottom sheet: switch between accounts within the current Zcash seed wallet, or derive a
+//  new one. Only ever opened for seed wallets — view-only wallets are always a single
+//  account and have no account switcher at all.
 //  Sibling of AccountSwitchSheet, which stays Monero-only — the two coins' account models
 //  (ZIP-32 derivation vs. imported viewing keys, possible index gaps) diverge enough that
 //  sharing one view would mean branching almost every row on the coin anyway.
@@ -19,7 +20,6 @@ struct ZcashAccountSwitchSheet: View {
 
     @State private var showingAddAccount = false
     @State private var renamingAccountIndex: Int? = nil
-    @State private var removingAccountIndex: Int? = nil
     @State private var isBusy = false
     @State private var errorMessage: String?
 
@@ -41,13 +41,6 @@ struct ZcashAccountSwitchSheet: View {
                             .listRowSeparator(.hidden)
                             .id(info.index)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if wallet.isWatchOnly && wallet.accountList.count > 1 {
-                                    Button(role: .destructive) {
-                                        removingAccountIndex = info.index
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
-                                }
                                 Button {
                                     renamingAccountIndex = info.index
                                 } label: {
@@ -81,7 +74,7 @@ struct ZcashAccountSwitchSheet: View {
                         Image(systemName: "plus")
                             .font(.system(size: 14, weight: .semibold))
                     }
-                    Text(wallet.capabilities.accountCreation == .importViewingKey ? "Add viewing key" : "Create new account")
+                    Text("Create new account")
                         .font(.dsBodyMD)
                 }
                 .frame(maxWidth: .infinity)
@@ -100,21 +93,12 @@ struct ZcashAccountSwitchSheet: View {
         }
         .background(Color.dsSurface.ignoresSafeArea())
         .sheet(isPresented: $showingAddAccount) {
-            if wallet.capabilities.accountCreation == .importViewingKey {
-                AddViewingKeyView { label, ufvk, birthday in
-                    runMutation { await wallet.addViewingKey(ufvk, label: label, birthday: birthday) }
-                }
-                .presentationDetents([.height(460)])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
-            } else {
-                AddAccountView(footnote: "Other wallets could only show Account 1 when you restore this seed there — accounts created here won't appear.") { label in
-                    runMutation { await wallet.deriveAccount(label: label) }
-                }
-                .presentationDetents([.height(400)])
-                .presentationDragIndicator(.visible)
-                .presentationCornerRadius(28)
+            AddAccountView(footnote: "Other wallets could only show Account 1 when you restore this seed there — accounts created here won't appear.") { label in
+                runMutation { await wallet.deriveAccount(label: label) }
             }
+            .presentationDetents([.height(400)])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
         }
         .sheet(item: Binding(
             get: { renamingAccountIndex.map { RenamingTarget(index: $0) } },
@@ -126,19 +110,6 @@ struct ZcashAccountSwitchSheet: View {
             .presentationDetents([.height(340)])
             .presentationDragIndicator(.visible)
             .presentationCornerRadius(28)
-        }
-        .alert("Remove viewing key?", isPresented: Binding(
-            get: { removingAccountIndex != nil },
-            set: { if !$0 { removingAccountIndex = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { removingAccountIndex = nil }
-            Button("Remove", role: .destructive) {
-                guard let index = removingAccountIndex else { return }
-                removingAccountIndex = nil
-                runMutation { await wallet.removeViewingKey(accountIndex: index) }
-            }
-        } message: {
-            Text("This removes the account and its transaction history from this wallet. You can re-add it later with the same viewing key.")
         }
         .alert("Couldn't update accounts", isPresented: Binding(
             get: { errorMessage != nil },
@@ -183,20 +154,9 @@ struct ZcashAccountSwitchSheet: View {
                     .frame(width: 36, height: 36)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(info.label)
-                                .font(.dsLabelMD)
-                                .foregroundStyle(Color.dsTextPrimary)
-                            if info.isAddedViewingKey {
-                                Text("Added key")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(Color.dsAccentStrong)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.dsJadeSoft)
-                                    .clipShape(Capsule())
-                            }
-                        }
+                        Text(info.label)
+                            .font(.dsLabelMD)
+                            .foregroundStyle(Color.dsTextPrimary)
                         if let balance {
                             if balanceVisible {
                                 Text("\(balance.total.formatted(style: .balance)) ZEC · ≈ $\(String(format: "%.2f", balance.total.fiat(price: price)))")
