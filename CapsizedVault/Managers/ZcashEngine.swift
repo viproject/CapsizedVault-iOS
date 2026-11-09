@@ -465,20 +465,24 @@ final class SDKZcashEngine: ZcashEngine {
 
     func shieldFunds(account: ZcashAccountID, seed: [UInt8], memo: String?) async throws -> Bool {
         guard let uuid = accounts[account], let hdIndex = hdIndices[account] else { throw ZcashEngineError.noAccount }
-        let memoValue = try memo.map { try Memo(string: $0) } ?? Memo.empty
-        // User-initiated, not an automatic sweep, so shield whatever is there rather than
-        // withholding below some dust threshold.
-        guard let proposal = try await synchronizer.proposeShielding(
-            accountUUID: uuid,
-            shieldingThreshold: .zero,
-            memo: memoValue,
-            transparentReceiver: nil
-        ) else {
-            return false
-        }
+        do {
+            let memoValue = try memo.map { try Memo(string: $0) } ?? Memo.empty
+            // User-initiated, not an automatic sweep, so shield whatever is there rather than
+            // withholding below some dust threshold.
+            guard let proposal = try await synchronizer.proposeShielding(
+                accountUUID: uuid,
+                shieldingThreshold: .zero,
+                memo: memoValue,
+                transparentReceiver: nil
+            ) else {
+                return false
+            }
 
-        let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdIndex)
-        return try await submitProposal(proposal, spendingKey: usk)
+            let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdIndex)
+            return try await submitProposal(proposal, spendingKey: usk)
+        } catch {
+            throw Self.mapToWalletError(error)
+        }
     }
 
     func classifyAddress(_ address: String) -> ZcashAddressKind {
@@ -573,6 +577,10 @@ final class SDKZcashEngine: ZcashEngine {
             // Only thrown by `SlipstreamSynchronizer`, when it can't confirm its previous
             // sync pass has stopped before a mutation. No existing `WalletError` case fits.
             return WalletError.unknown("Still finishing the previous sync step. Try again in a moment.")
+        case .rustShieldFunds(let rustError):
+            // The generic "Error from rust layer..." description names no cause (e.g. the
+            // transparent balance being too small to cover the fee) — surface the real reason.
+            return WalletError.unknown("Couldn't shield funds: \(rustError)")
         default:
             return error
         }

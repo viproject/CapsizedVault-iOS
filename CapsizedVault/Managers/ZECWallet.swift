@@ -428,7 +428,7 @@ class ZECWallet: BaseWallet {
             }
             return .success(shielded)
         } catch {
-            return .failure(.unknown("Failed to shield funds: \(error.localizedDescription)"))
+            return .failure((error as? WalletError) ?? .unknown("Failed to shield funds: \(error.localizedDescription)"))
         }
     }
 
