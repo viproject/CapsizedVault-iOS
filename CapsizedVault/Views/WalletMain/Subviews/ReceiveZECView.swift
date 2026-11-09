@@ -107,6 +107,12 @@ struct ReceiveZECView: View {
                     }
                     .padding(.top, 24)
 
+                    if canShield {
+                        shieldFundsCard
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                    }
+
                     Divider()
                         .padding(.top, 20)
 
@@ -135,18 +141,12 @@ struct ReceiveZECView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
                     case .transparent:
-                        Text("Transparent addresses post the amount and sender/receiver publicly on the blockchain, like Bitcoin. Use them only when a sender requires it (e.g. an exchange), then shield the funds below to move them into your private balance.")
+                        Text("Transparent addresses post the amount and sender/receiver publicly on the blockchain, like Bitcoin. Use them only when a sender requires it (e.g. an exchange), then shield the funds above to move them into your private balance.")
                             .font(.system(size: 14))
                             .foregroundStyle(Color(red: 0.698, green: 0.561, blue: 0.251))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
-                    }
-
-                    if canShield {
-                        shieldFundsCard
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
                     }
 
                     Spacer()
