@@ -29,6 +29,10 @@ nonisolated struct WalletTransaction: Identifiable, Equatable, Sendable {
     /// fact — Zcash's engine layer only knows the SDK's own account id at mapping time (see
     /// `ZECWallet.refreshTransactions()`); Monero sets this once and never changes it.
     var account: Int
+    /// True for a Zcash shielding transaction (moving a transparent balance into the shielded
+    /// pool) — always `false` for Monero, which has no transparent pool. Lets a transaction
+    /// list show "Shielding" instead of "Sent" for these self-transfers.
+    var isShielding: Bool = false
 }
 
 nonisolated struct WalletAccountBalance: Equatable, Sendable {

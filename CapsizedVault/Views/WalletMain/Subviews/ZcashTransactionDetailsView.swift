@@ -145,7 +145,7 @@ struct ZcashTransactionDetailsView: View {
 
             // Label + relative time
             VStack(alignment: .leading, spacing: 2) {
-                Text((isIn ? "Received" : "Sent") + (isFailed ? " (Failed)" : isPending ? " (Pending)" : ""))
+                Text((liveTransaction.isShielding ? "Shielding" : isIn ? "Received" : "Sent") + (isFailed ? " (Failed)" : isPending ? " (Pending)" : ""))
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Color.dsTextPrimary)
                 Text(relativeTime)

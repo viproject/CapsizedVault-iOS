@@ -747,7 +747,7 @@ struct WalletMainView: View {
 
             // Transparent amount, shown under the Shield column only — kept out of the tile
             // itself so Shield stays the same size as Send/Receive.
-            if !canShield, let transparentBalance {
+            if canShield, let transparentBalance {
                 HStack(spacing: 10) {
                     Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
                     Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
@@ -1115,7 +1115,7 @@ struct WalletMainView: View {
 
                 // Left text
                 VStack(alignment: .leading, spacing: 2) {
-                    Text((isIn ? "Received" : "Sent") + (tx.isFailed ? " (Failed)" : tx.isPending ? " (Pending)" : ""))
+                    Text((tx.isShielding ? "Shielding" : isIn ? "Received" : "Sent") + (tx.isFailed ? " (Failed)" : tx.isPending ? " (Pending)" : ""))
                         .font(.dsBodyMD)
                         .foregroundStyle(Color.dsTextPrimary)
                     Text(dateLabel)

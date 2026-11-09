@@ -627,7 +627,8 @@ final class SDKZcashEngine: ZcashEngine {
             isFailed: isFailed,
             memo: nil,
             recipient: nil,
-            account: 0
+            account: 0,
+            isShielding: overview.isShielding
         )
     }
 }
