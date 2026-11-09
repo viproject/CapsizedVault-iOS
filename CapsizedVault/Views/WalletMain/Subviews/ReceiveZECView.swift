@@ -123,6 +123,9 @@ struct ReceiveZECView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
 
+                    privacyBadge
+                        .padding(.top, 12)
+
                     switch addressType {
                     case .unified:
                         Text("Unified addresses shield both the amount and your activity from anyone but the sender. They're the recommended default and work with any wallet that supports shielded ZEC.")
@@ -219,6 +222,29 @@ struct ReceiveZECView: View {
                 ReviewManager.shared.requestReviewIfEligible()
             }
         }
+    }
+
+    // MARK: - Privacy badge
+
+    private var privacyBadge: some View {
+        let (icon, label, foreground, background): (String, String, Color, Color) = {
+            switch addressType {
+            case .unified: return ("lock.fill", "Private", .dsAccentStrong, .dsJadeSoft)
+            case .transparent: return ("eye.fill", "Not private", .dsDanger, .dsDangerSoft)
+            }
+        }()
+
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(background)
+        .clipShape(Capsule())
     }
 
     // MARK: - Shield funds card
