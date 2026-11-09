@@ -55,6 +55,8 @@ struct WalletMainView: View {
     @State private var showingZcashBalancePools = false
     @State private var labelInput = ""
     @State private var showingWatchOnlySendAlert = false
+    @State private var showingShieldConfirm = false
+    @State private var shieldResultMessage: String?
 
     // Mac sidebar state (kept for reference)
     @State private var showingTitleAlert = false
@@ -696,21 +698,66 @@ struct WalletMainView: View {
     @ViewBuilder
     private func quickActionsRow(_ wallet: BaseWallet) -> some View {
         let canReceive = wallet.moneroWallet != nil || wallet.zcashWallet != nil
-        HStack(spacing: 10) {
-            quickActionCell(label: "Send", icon: "arrow.up.right", enabled: wallet.capabilities.canSend) {
-                if wallet.isWatchOnly {
-                    showingWatchOnlySendAlert = true
-                } else if wallet.zcashWallet != nil {
-                    showingSendZEC = true
-                } else {
-                    showingSendXMR = true
+        let zcash = wallet.zcashWallet
+        let transparentBalance = wallet.accounts.first(where: { $0.index == Int(wallet.activeAccountIndex) })?.transparent
+        let canShield = zcash != nil && wallet.capabilities.supportsShielding && (transparentBalance?.isZero == false)
+
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
+                quickActionCell(label: "Send", icon: "arrow.up.right", enabled: wallet.capabilities.canSend) {
+                    if wallet.isWatchOnly {
+                        showingWatchOnlySendAlert = true
+                    } else if wallet.zcashWallet != nil {
+                        showingSendZEC = true
+                    } else {
+                        showingSendXMR = true
+                    }
+                }
+                quickActionCell(label: "Receive", icon: "arrow.down.left", enabled: canReceive) {
+                    if wallet.zcashWallet != nil {
+                        showingReceiveZEC = true
+                    } else {
+                        showingReceiveXMR = true
+                    }
+                }
+                if canShield, let zcash, let transparentBalance {
+                    quickActionCell(
+                        label: zcash.isShielding ? "Shielding…" : "Shield",
+                        icon: "shield.lefthalf.filled",
+                        enabled: !zcash.isShielding
+                    ) {
+                        showingShieldConfirm = true
+                    }
+                    .alert("Shield funds?", isPresented: $showingShieldConfirm) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Shield") { runShield(zcash) }
+                    } message: {
+                        Text("Shielding moves your transparent balance of \(transparentBalance.formatted(style: .balance)) ZEC into your private balance. After that, the amount and your activity are no longer visible on the blockchain. A small network fee is deducted from the amount.")
+                    }
+                    .alert("Shield funds", isPresented: Binding(
+                        get: { shieldResultMessage != nil },
+                        set: { if !$0 { shieldResultMessage = nil } }
+                    )) {
+                        Button("OK", role: .cancel) { }
+                    } message: {
+                        Text(shieldResultMessage ?? "")
+                    }
                 }
             }
-            quickActionCell(label: "Receive", icon: "arrow.down.left", enabled: canReceive) {
-                if wallet.zcashWallet != nil {
-                    showingReceiveZEC = true
-                } else {
-                    showingReceiveXMR = true
+
+            // Transparent amount, shown under the Shield column only — kept out of the tile
+            // itself so Shield stays the same size as Send/Receive.
+            if !canShield, let transparentBalance {
+                HStack(spacing: 10) {
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                    Color.clear.frame(maxWidth: .infinity, maxHeight: 0)
+                    Text(balanceVisible ? "\(transparentBalance.formatted(style: .balance)) ZEC" : "••••")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsTextTertiary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -718,6 +765,20 @@ struct WalletMainView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text("Watch-only wallet, funds can be sent with offline signing only, coming in future versions.")
+        }
+    }
+
+    private func runShield(_ zcash: ZECWallet) {
+        Task {
+            let result = await zcash.shieldFunds()
+            switch result {
+            case .success(let shielded):
+                shieldResultMessage = shielded
+                    ? "Your transparent balance is being shielded."
+                    : "There was no transparent balance to shield."
+            case .failure(let error):
+                shieldResultMessage = error.userMessage
+            }
         }
     }
 
