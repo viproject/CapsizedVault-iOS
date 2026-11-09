@@ -122,9 +122,17 @@ struct ReceiveZECView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
 
-                    if addressType == .transparent {
-                        Text("Transparent addresses are visible on the public blockchain. Shield received funds to move them into your private balance.")
-                            .font(.system(size: 12))
+                    switch addressType {
+                    case .unified:
+                        Text("Unified addresses shield both the amount and your activity from anyone but the sender. They're the recommended default and work with any wallet that supports shielded ZEC.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color(red: 0.698, green: 0.561, blue: 0.251))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                    case .transparent:
+                        Text("Transparent addresses post the amount and sender/receiver publicly on the blockchain, like Bitcoin. Use them only when a sender requires it (e.g. an exchange), then shield the funds below to move them into your private balance.")
+                            .font(.system(size: 14))
                             .foregroundStyle(Color(red: 0.698, green: 0.561, blue: 0.251))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 20)
