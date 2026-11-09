@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import CapsizedMoneroKit
 import ZODLSwiftWalletSDK
 
 /// Update pushed from a `ZcashEngine` to its owning `ZECWallet`. `chainHeight` rides along with
@@ -148,6 +149,14 @@ enum ZcashEngineError: LocalizedError {
     }
 }
 
+/// Which `Synchronizer` implementation `SDKZcashEngine` builds. Intentionally not
+/// user-facing and not persisted anywhere (no `UserDefaults`, no Realm) — the only way to
+/// change it is to edit `ZcashSettings.synchronizerKind` and rebuild.
+enum ZcashSynchronizerKind {
+    case sdk
+    case slipstream
+}
+
 /// Whether Zcash traffic (tx submit/lookup/server-eval) goes over the SDK's built-in Tor
 /// client, and which lightwalletd server a wallet connects to. Both are only read when a
 /// `SDKZcashEngine` is constructed, so changing either requires `BaseWallet.restartSync()` to
@@ -157,16 +166,23 @@ enum ZcashSettings {
     private static let serverURLKey = "zcashServerURL"
     static let defaultServerURLString = "https://zec.rocks:443"
 
+    /// See `ZcashSynchronizerKind`'s doc comment: deliberately a `let`, not persisted, not
+    /// surfaced in any Settings screen.
+    static let synchronizerKind: ZcashSynchronizerKind = .slipstream
+
     /// Must be called once at app launch (see `CapsizedVaultApp.init`), before any
     /// `SDKZcashEngine` is constructed, so `isTorEnabled`/`selectedServerURLString` read a
-    /// real default instead of `UserDefaults`' own type-less nil.
+    /// real default instead of `UserDefaults`' own type-less nil. Tor defaults to off — see
+    /// `isTorEnabled`'s doc comment.
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
-            torEnabledKey: true,
+            torEnabledKey: false,
             serverURLKey: defaultServerURLString
         ])
     }
 
+    /// Off by default (see `registerDefaults()`). A user who explicitly sets this keeps their
+    /// choice — `register(defaults:)` never overrides a saved value.
     static var isTorEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: torEnabledKey) }
         set { UserDefaults.standard.set(newValue, forKey: torEnabledKey) }
@@ -186,11 +202,34 @@ enum ZcashSettings {
         }
         return LightWalletEndpoint(address: host, port: url.port ?? 443, secure: true)
     }
+
+    /// Backup servers for `SlipstreamSynchronizer`'s probe-then-commit + mid-pass failover.
+    /// Non-empty only when `endpoint` resolves to one of `NodeStore.zcashDefaultServers` — all
+    /// five are zec.rocks mirrors run by one operator, so failing over between them doesn't
+    /// expose the user's IP to anyone new. A custom server (possibly self-hosted for privacy)
+    /// always gets `[]`, so it's never silently swapped for zec.rocks. Ignored by Slipstream
+    /// whenever Tor is enabled (probe/failover dial direct, which would bypass the circuit) —
+    /// no Tor check needed here. `SDKSynchronizer` has no failover concept, so this only
+    /// affects the Slipstream path.
+    static var alternateEndpoints: [LightWalletEndpoint] {
+        let current = endpoint
+        let isDefaultServer = NodeStore.zcashDefaultServers.contains { node in
+            guard let host = node.url.host else { return false }
+            return host == current.host && (node.url.port ?? 443) == current.port
+        }
+        guard isDefaultServer else { return [] }
+        return NodeStore.zcashDefaultServers.compactMap { node -> LightWalletEndpoint? in
+            guard let host = node.url.host else { return nil }
+            return LightWalletEndpoint(address: host, port: node.url.port ?? 443, secure: true)
+        }
+    }
 }
 
-/// Adapts a `SDKSynchronizer` to `ZcashEngine`. One instance per `ZECWallet`; each wallet's
-/// files live under their own directory (`walletDirectory(for:)`) and alias
+/// Adapts a `Synchronizer` (either `SDKSynchronizer` or `SlipstreamSynchronizer`, picked by
+/// `ZcashSettings.synchronizerKind`) to `ZcashEngine`. One instance per `ZECWallet`; each
+/// wallet's files live under their own directory (`walletDirectory(for:)`) and alias
 /// (`ZcashSynchronizerAlias.custom(walletId)`), so two wallets' on-disk state can never collide.
+/// Both synchronizers take the same `Initializer` and write to the same `data.db`.
 final class SDKZcashEngine: ZcashEngine {
 
     static func walletDirectory(for walletId: String) -> URL {
@@ -200,8 +239,12 @@ final class SDKZcashEngine: ZcashEngine {
 
     let updates: AsyncStream<ZcashEngineUpdate>
 
-    private let synchronizer: SDKSynchronizer
-    private let network: NetworkType
+    private let synchronizer: any AwaitableStopSynchronizer
+    /// `SlipstreamSynchronizer.initializer` is `private`, unlike `SDKSynchronizer.initializer`
+    /// — kept here so `prepare(seed:birthday:)` can read `walletBirthday` regardless of which
+    /// synchronizer is in use.
+    private let initializer: Initializer
+    private let network: ZODLSwiftWalletSDK.NetworkType
     /// Live SDK objects behind each app-facing `ZcashAccountID` — `AccountUUID.init(id:)` is
     /// internal to the SDK module, so this engine can only ever hand back `AccountUUID`s the
     /// SDK itself produced (via `listAccounts`/`importAccount`/`getAccountsBalances`), never
@@ -252,7 +295,13 @@ final class SDKZcashEngine: ZcashEngine {
             isTorEnabled: ZcashSettings.isTorEnabled,
             isExchangeRateEnabled: false
         )
-        self.synchronizer = SDKSynchronizer(initializer: initializer)
+        self.initializer = initializer
+        switch ZcashSettings.synchronizerKind {
+        case .sdk:
+            self.synchronizer = SDKSynchronizer(initializer: initializer)
+        case .slipstream:
+            self.synchronizer = SlipstreamSynchronizer(initializer: initializer, alternateEndpoints: ZcashSettings.alternateEndpoints)
+        }
 
         var continuation: AsyncStream<ZcashEngineUpdate>.Continuation!
         self.updates = AsyncStream { continuation = $0 }
@@ -280,7 +329,7 @@ final class SDKZcashEngine: ZcashEngine {
 
     func prepare(seed: [UInt8], birthday: Int?) async throws -> Int {
         _ = try await synchronizer.prepare(with: seed, walletBirthday: birthday, name: "Account 1", keySource: nil)
-        return synchronizer.initializer.walletBirthday
+        return initializer.walletBirthday
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
@@ -328,35 +377,36 @@ final class SDKZcashEngine: ZcashEngine {
         let tool = DerivationTool(networkType: network)
         let usk = try tool.deriveUnifiedSpendingKey(seed: seed, accountIndex: zip32Index)
         let ufvk = try tool.deriveUnifiedFullViewingKey(from: usk)
-        let uuid = try await synchronizer.importAccount(
-            ufvk: ufvk.stringEncoded,
-            seedFingerprint: primarySeedFingerprint,
-            zip32AccountIndex: zip32Index,
-            purpose: .spending,
-            name: "Account \(hdIndex + 1)",
-            keySource: nil,
-            birthday: birthday
-        )
+        let uuid: AccountUUID
+        do {
+            uuid = try await synchronizer.importAccount(
+                ufvk: ufvk.stringEncoded,
+                seedFingerprint: primarySeedFingerprint,
+                zip32AccountIndex: zip32Index,
+                purpose: .spending,
+                name: "Account \(hdIndex + 1)",
+                keySource: nil,
+                birthday: birthday
+            )
+        } catch {
+            // Only `SlipstreamSynchronizer` can throw `.slipstreamEngineNotQuiescent` here
+            // (importing while a sync pass hasn't confirmed it stopped) — `prepareViewOnly`'s
+            // `importAccount` call runs before `start()`, so a pass can't be in flight there.
+            throw Self.mapToWalletError(error)
+        }
         let id = remember(uuid)
         hdIndices[id] = zip32Index
         return id
     }
 
+    /// No timeout, on purpose: `ZECWallet.pendingTeardowns` awaits this before letting a new
+    /// engine open the same wallet's `data.db`, so giving up early would risk a second writer
+    /// opening the database while this one is still finishing. `SDKSynchronizer.stopAndWait()`
+    /// waits for its in-flight work; `SlipstreamSynchronizer.stopAndWait()` waits for whatever
+    /// is ahead of it in its lifecycle queue (e.g. a stall recovery or an account import), which
+    /// can take tens of seconds.
     func stop() async {
-        synchronizer.stop()
-        if isStopped(synchronizer.latestState.syncStatus) { return }
-
-        let stopped = Task {
-            for await state in synchronizer.stateStream.values {
-                if isStopped(state.syncStatus) { return }
-            }
-        }
-        let timeout = Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            stopped.cancel()
-        }
-        await stopped.value
-        timeout.cancel()
+        await synchronizer.stopAndWait()
     }
 
     func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance] {
@@ -519,17 +569,12 @@ final class SDKZcashEngine: ZcashEngine {
              .saplingParamsInvalidSpendParams, .saplingParamsInvalidOutputParams,
              .walletTransEncoderCreateTransactionMissingSaplingParams:
             return WalletError.paramsDownloadFailed
+        case .slipstreamEngineNotQuiescent:
+            // Only thrown by `SlipstreamSynchronizer`, when it can't confirm its previous
+            // sync pass has stopped before a mutation. No existing `WalletError` case fits.
+            return WalletError.unknown("Still finishing the previous sync step. Try again in a moment.")
         default:
             return error
-        }
-    }
-
-    private func isStopped(_ status: SyncStatus) -> Bool {
-        switch status {
-        case .stopped, .unprepared:
-            return true
-        default:
-            return false
         }
     }
 

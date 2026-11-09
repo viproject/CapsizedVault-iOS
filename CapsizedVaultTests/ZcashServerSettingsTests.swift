@@ -59,4 +59,30 @@ struct ZcashServerSettingsTests {
         #expect(endpoint.host == "lightwalletd.example.com")
         #expect(endpoint.port == 443)
     }
+
+    // MARK: - ZcashSettings.alternateEndpoints
+
+    @Test func alternateEndpointsReturnsAllDefaultsWhenADefaultServerIsSelected() {
+        let previous = ZcashSettings.selectedServerURLString
+        defer { ZcashSettings.selectedServerURLString = previous }
+
+        ZcashSettings.selectedServerURLString = "https://na.zec.rocks:443"
+        #expect(ZcashSettings.alternateEndpoints.count == NodeStore.zcashDefaultServers.count)
+    }
+
+    @Test func alternateEndpointsReturnsAllDefaultsWhenTheDefaultServerIsStoredWithoutAPort() {
+        let previous = ZcashSettings.selectedServerURLString
+        defer { ZcashSettings.selectedServerURLString = previous }
+
+        ZcashSettings.selectedServerURLString = "https://zec.rocks"
+        #expect(ZcashSettings.alternateEndpoints.count == NodeStore.zcashDefaultServers.count)
+    }
+
+    @Test func alternateEndpointsReturnsEmptyWhenACustomServerIsSelected() {
+        let previous = ZcashSettings.selectedServerURLString
+        defer { ZcashSettings.selectedServerURLString = previous }
+
+        ZcashSettings.selectedServerURLString = "https://my.own.lightwalletd.example.com:443"
+        #expect(ZcashSettings.alternateEndpoints.isEmpty)
+    }
 }

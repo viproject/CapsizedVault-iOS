@@ -59,7 +59,7 @@ struct ZcashServerSettingsView: View {
     @State private var customServers: [ZcashServerSnapshot] = []
     @State private var openSwipeHost: String? = nil
 
-    @AppStorage("zcashTorEnabled") private var torEnabled: Bool = true
+    @AppStorage("zcashTorEnabled") private var torEnabled: Bool = false
     @AppStorage("zcashServerURL") private var selectedServerURLString: String = ZcashSettings.defaultServerURLString
 
     @State private var confirmDeleteURL: String? = nil
