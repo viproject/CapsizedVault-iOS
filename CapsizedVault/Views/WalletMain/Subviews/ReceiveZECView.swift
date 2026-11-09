@@ -47,6 +47,7 @@ struct ReceiveZECView: View {
         doc.design.backgroundColor(CGColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0))
         doc.design.shape.onPixels = QRCode.PixelShape.RoundedPath(cornerRadiusFraction: 0.7, hasInnerCorners: true)
         doc.design.shape.eye = QRCode.EyeShape.RoundedRect()
+        doc.applyLogo(for: .zcash)
         return doc
     }
 

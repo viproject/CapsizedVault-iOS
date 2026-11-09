@@ -31,6 +31,7 @@ struct BackupSeedQRView: View {
         doc.design.backgroundColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1.0))
         doc.design.shape.onPixels = QRCode.PixelShape.RoundedPath(cornerRadiusFraction: 0.7, hasInnerCorners: true)
         doc.design.shape.eye = QRCode.EyeShape.RoundedRect()
+        doc.applyLogo(for: .monero)
         return doc
     }
 

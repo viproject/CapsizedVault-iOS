@@ -357,6 +357,7 @@ struct BackupWalletZcashView: View {
             doc.design.backgroundColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
             doc.design.shape.onPixels = QRCode.PixelShape.RoundedPath(cornerRadiusFraction: 0.7, hasInnerCorners: true)
             doc.design.shape.eye = QRCode.EyeShape.RoundedRect()
+            doc.applyLogo(for: .zcash)
             return doc
         }()
 
