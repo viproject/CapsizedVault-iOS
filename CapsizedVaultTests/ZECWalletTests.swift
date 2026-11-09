@@ -31,6 +31,7 @@ private final class FakeZcashEngine: ZcashEngine {
     var fakeAccounts: [ZcashEngineAccount] = []
     private(set) var listAccountsCount = 0
 
+    private(set) var accountBalancesCount = 0
     var balancesByAccount: [ZcashAccountID: ZcashEngineBalance] = [:]
     /// Convenience for single-account tests.
     var balance: ZcashEngineBalance? {
@@ -91,7 +92,9 @@ private final class FakeZcashEngine: ZcashEngine {
         if fakeAccounts.isEmpty {
             fakeAccounts = [ZcashEngineAccount(id: FakeZcashEngine.primaryAccountID, hdIndex: 0, ufvk: nil)]
         }
-        return birthday ?? 0
+        // Mirrors `SDKZcashEngine.prepare`, which never returns 0 for a brand-new wallet —
+        // the real SDK picks a reorg-safe recent height even when `birthday` is nil.
+        return birthday ?? ZcashBirthday.height(for: Date())
     }
 
     func prepareViewOnly(pendingUFVK: String?, birthday: Int?) async throws {
@@ -136,7 +139,8 @@ private final class FakeZcashEngine: ZcashEngine {
     }
 
     func accountBalances() async throws -> [ZcashAccountID: ZcashEngineBalance] {
-        balancesByAccount
+        accountBalancesCount += 1
+        return balancesByAccount
     }
 
     func transactions(page: Int) async throws -> [(account: ZcashAccountID, transaction: WalletTransaction)] {
@@ -283,7 +287,10 @@ struct ZECWalletTests {
             total: CoinAmount(atomic: 100_000_000, coin: .zcash),
             spendable: CoinAmount(atomic: 90_000_000, coin: .zcash),
             pending: CoinAmount(atomic: 10_000_000, coin: .zcash),
-            transparent: CoinAmount(atomic: 0, coin: .zcash)
+            transparent: CoinAmount(atomic: 0, coin: .zcash),
+            sapling: CoinAmount(atomic: 0, coin: .zcash),
+            orchard: CoinAmount(atomic: 0, coin: .zcash),
+            ironwood: CoinAmount(atomic: 0, coin: .zcash)
         )
         engine.balance = ZcashEngineBalance(total: 100_000_000, spendable: 90_000_000, pending: 10_000_000, transparent: 0)
         let tx = WalletTransaction(
@@ -298,9 +305,13 @@ struct ZECWalletTests {
         try await waitUntil { engine.startCount == 1 }
 
         engine.sendStatus(.synced(height: 10))
-        try await waitUntil { wallet.cachedTotalUnlocked != nil }
+        // `activate()` already eagerly refreshes balance/transactions right after `start()`
+        // succeeds (so a resumed partial sync shows something immediately), so waiting on
+        // `cachedTotalUnlocked != nil` can be satisfied by that eager refresh alone, before
+        // this `.synced` update is even processed. Wait on `syncStatus` instead — it's set
+        // synchronously at the top of `apply(_:)`, before that update's own refresh runs.
+        try await waitUntil { wallet.syncStatus == .synced(height: 10) }
 
-        #expect(wallet.syncStatus == .synced(height: 10))
         #expect(wallet.cachedTotalUnlocked == expectedBalance.total)
         #expect(wallet.accounts == [expectedBalance])
         #expect(wallet.transactions == [tx])
@@ -314,11 +325,17 @@ struct ZECWalletTests {
         let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
         wallet.activate()
         try await waitUntil { engine.startCount == 1 }
+        // `activate()` eagerly refreshes balance once, right after `start()`, regardless of
+        // sync status (so a resumed partial sync shows something immediately rather than
+        // nothing until the next full sync) — wait for that to land before taking the
+        // baseline count below, so it isn't mistaken for a refetch caused by `.syncing`.
+        try await waitUntil { engine.accountBalancesCount >= 1 }
+        let countAfterActivate = engine.accountBalancesCount
 
         engine.sendStatus(.syncing(progress: 40, remaining: 100))
         try await waitUntil { wallet.syncStatus == .syncing(progress: 40, remaining: 100) }
 
-        #expect(wallet.cachedTotalUnlocked == nil)
+        #expect(engine.accountBalancesCount == countAfterActivate)
 
         wallet.deactivate()
         try await waitUntil { engine.stopCount == 1 }
