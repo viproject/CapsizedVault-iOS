@@ -65,6 +65,7 @@ struct ZcashServerSettingsView: View {
     @State private var confirmDeleteURL: String? = nil
     @State private var editingServer: ZcashServerSnapshot? = nil
     @State private var showingAddServer = false
+    @State private var showingTorInfo = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -98,6 +99,12 @@ struct ZcashServerSettingsView: View {
         }
         .sheet(item: $editingServer) { server in
             addEditServerSheet(editing: server)
+        }
+        .sheet(isPresented: $showingTorInfo) {
+            TorInfoSheet()
+                .presentationDetents([.height(480)])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(28)
         }
     }
 
@@ -160,10 +167,18 @@ struct ZcashServerSettingsView: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Zcash traffic only")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.dsTextPrimary)
-                    Text("Routes transaction submission, lookups and server requests through Tor. Block sync and transparent-address fetches still go direct — everyone downloads the same blocks, so there's no privacy loss there. This never affects Monero.")
+                    HStack(spacing: 6) {
+                        Text("Connect via Tor")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color.dsTextPrimary)
+                        Button(action: { showingTorInfo = true }) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(Color.dsTextTertiary)
+                        }
+                        .accessibilityLabel("About Tor")
+                    }
+                    Text("Hides your IP address when sending and looking up transactions. Applies to all Zcash wallets.")
                         .font(.system(size: 12))
                         .foregroundStyle(Color.dsTextSecondary)
                         .lineSpacing(2)
@@ -173,6 +188,7 @@ struct ZcashServerSettingsView: View {
                 Toggle("", isOn: $torEnabled)
                     .labelsHidden()
                     .tint(Color.dsAccent)
+                    .accessibilityLabel("Connect via Tor")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -596,6 +612,78 @@ private struct AddEditZcashServerSheet: View {
         } else {
             let success = onAdd(trimmed)
             if !success { error = "Server already exists or could not be saved" }
+        }
+    }
+}
+
+// MARK: - TorInfoSheet
+
+private struct TorInfoSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            RoundedRectangle(cornerRadius: 999)
+                .fill(Color.dsBorder)
+                .frame(width: 36, height: 4)
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Text("About Tor")
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(Color.dsTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 20)
+
+            VStack(alignment: .leading, spacing: 16) {
+                infoRow(
+                    icon: "lock.shield",
+                    title: "Sent through Tor",
+                    detail: "Sending transactions, transaction lookups and server requests."
+                )
+                infoRow(
+                    icon: "arrow.down.circle",
+                    title: "Sent directly",
+                    detail: "Block downloads and transparent-address lookups. Everyone downloads the same blocks, so this reveals nothing about you."
+                )
+                infoRow(
+                    icon: "exclamationmark.circle",
+                    title: "Good to know",
+                    detail: "Applies to all Zcash wallets; Monero is never affected. Connections may be slower, and automatic fallback to backup servers is off while Tor is on."
+                )
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.dsSurfaceSunken)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.top, 20)
+
+            Button(action: { dismiss() }) {
+                Text("Got it")
+            }
+            .buttonStyle(.dsPrimary)
+            .padding(.top, 20)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 28)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func infoRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(Color.dsTextSecondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color.dsTextPrimary)
+                Text(detail)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.dsTextSecondary)
+                    .lineSpacing(14 * 0.3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
