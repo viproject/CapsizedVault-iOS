@@ -15,7 +15,6 @@ struct RemoveWalletView: View {
 
     @StateObject private var authManager = AuthManager.shared
     @State private var showingConfirmAlert = false
-    @State private var showingSuccessAlert = false
     @State private var showingPINAuthentication = false
     @State private var pinErrorMessage: String?
 
@@ -91,11 +90,6 @@ struct RemoveWalletView: View {
         } message: {
             Text("This action cannot be undone. \(backupReminder).")
         }
-        .alert("Wallet removed", isPresented: $showingSuccessAlert) {
-            Button("Done") { onRemove() }
-        } message: {
-            Text("\(walletTitle) has been removed from this device.")
-        }
         .sheet(isPresented: $showingPINAuthentication) {
             ZStack {
                 Color.dsBackground.ignoresSafeArea()
@@ -125,7 +119,7 @@ struct RemoveWalletView: View {
                         if authManager.authenticateWithPIN(pin) {
                             showingPINAuthentication = false
                             pinErrorMessage = nil
-                            showingSuccessAlert = true
+                            onRemove()
                         } else {
                             pinErrorMessage = "Incorrect PIN. Try again."
                         }
@@ -137,7 +131,7 @@ struct RemoveWalletView: View {
 
     private func confirmRemoval() async {
         guard authManager.isAppLockEnabled else {
-            showingSuccessAlert = true
+            onRemove()
             return
         }
 
@@ -148,7 +142,7 @@ struct RemoveWalletView: View {
 
         let success = await authManager.evaluateBiometrics(reason: "Confirm wallet removal")
         if success {
-            showingSuccessAlert = true
+            onRemove()
         } else {
             showingPINAuthentication = true
         }

@@ -43,6 +43,10 @@ struct WalletMainView: View {
     @State private var showingBackupAlert = false
     @State private var showingEditWallet = false
     @State private var showingRemoveWallet = false
+    // Set by RemoveWalletView on confirm; the removal itself runs in the sheet's onDismiss so
+    // the wallet swap happens on-screen rather than hidden behind the dismissing sheet.
+    @State private var pendingWalletRemoval = false
+    @State private var walletRemovedNotice: WalletRemovedNotice?
     @State private var showingAppSettings = false
     @State private var showingNodeSettings = false
     @State private var showingZcashServerSettings = false
@@ -80,11 +84,37 @@ struct WalletMainView: View {
         Group {
             if let wallet = walletManager.activeWallet {
                 mainContent(wallet)
+                    .id(wallet.walletId)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
             } else {
                 OnboardingView(
                     onCreateWallet: { showingAddWallet = true },
                     onImportWallet: { showingRestoreWallet = true }
                 )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .overlay(alignment: .top) {
+            if let notice = walletRemovedNotice {
+                WalletRemovedBanner(notice: notice) {
+                    withAnimation(.easeInOut(duration: 0.25)) { walletRemovedNotice = nil }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .task(id: notice.id) {
+                    // Don't use `try?` here: if SwiftUI cancels the task (e.g. the overlay is
+                    // re-rendered during the wallet-swap animation), the sleep would end early
+                    // and hide the banner too soon. A cancelled task just returns; a restarted
+                    // one waits the full duration again.
+                    do {
+                        try await Task.sleep(for: .seconds(3))
+                    } catch {
+                        return
+                    }
+                    guard walletRemovedNotice?.id == notice.id else { return }
+                    withAnimation(.easeInOut(duration: 0.25)) { walletRemovedNotice = nil }
+                }
             }
         }
         // --- Bottom sheets (native) ---
@@ -220,13 +250,26 @@ struct WalletMainView: View {
                 showingEditWallet = false
             }
         }
-        .sheet(isPresented: $showingRemoveWallet) {
+        .sheet(isPresented: $showingRemoveWallet, onDismiss: {
+            guard pendingWalletRemoval else { return }
+            pendingWalletRemoval = false
+            let removedTitle = walletManager.activeWallet?.title ?? ""
+            withAnimation(.easeInOut(duration: 0.35)) {
+                walletManager.removeActiveWallet()
+            }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                walletRemovedNotice = WalletRemovedNotice(
+                    removedTitle: removedTitle,
+                    nowShowingTitle: walletManager.activeWallet?.title
+                )
+            }
+        }) {
             RemoveWalletView(
                 walletTitle: walletManager.activeWallet?.title ?? "",
                 isWatchOnly: walletManager.activeWallet?.isWatchOnly ?? false,
                 onRemove: {
+                    pendingWalletRemoval = true
                     showingRemoveWallet = false
-                    walletManager.removeActiveWallet()
                 },
                 onCancel: { showingRemoveWallet = false }
             )
@@ -1297,6 +1340,49 @@ private struct OnboardingView: View {
             }
             .padding(.horizontal, 24)
         }
+    }
+}
+
+// MARK: - Wallet removed banner
+
+private struct WalletRemovedNotice: Equatable {
+    let id = UUID()
+    let removedTitle: String
+    /// Title of the wallet that became active after removal; nil when no wallets are left.
+    let nowShowingTitle: String?
+}
+
+private struct WalletRemovedBanner: View {
+    let notice: WalletRemovedNotice
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(Color.dsAccent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("“\(notice.removedTitle)” removed")
+                    .font(.dsBodyMD)
+                    .foregroundStyle(Color.dsTextPrimary)
+                if let nowShowing = notice.nowShowingTitle {
+                    Text("Now showing “\(nowShowing)”")
+                        .font(.dsCaption)
+                        .foregroundStyle(Color.dsTextSecondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.dsSurfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.dsBorder, lineWidth: 1))
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onDismiss)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
