@@ -161,6 +161,7 @@ struct SendXMRView: View {
                     if viewState == .enterAddress {
                         TextField("Paste or scan an address", text: $receiverAddress, axis: .vertical)
                             .focused($isEnterAddressFocused)
+                            .autocorrectionDisabled()
                             .font(.system(size: 14, weight: .regular, design: .monospaced))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
@@ -184,6 +185,14 @@ struct SendXMRView: View {
                                 if stripped != receiverAddress {
                                     receiverAddress = stripped
                                     isEnterAddressFocused = false
+                                }
+                            }
+                            .toolbar {
+                                ToolbarItemGroup(placement: .keyboard) {
+                                    Spacer()
+                                    Button("Done") {
+                                        isEnterAddressFocused = false
+                                    }
                                 }
                             }
                     } else {
