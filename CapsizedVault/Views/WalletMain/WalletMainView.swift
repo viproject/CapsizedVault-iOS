@@ -258,13 +258,17 @@ struct WalletMainView: View {
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
         }
-        .sheet(isPresented: $showingSendXMR) {
+        .sheet(isPresented: $showingSendXMR, onDismiss: {
+            ReviewManager.shared.requestPendingReviewIfNeeded()
+        }) {
             SendXMRView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .presentationCornerRadius(20)
         }
-        .sheet(isPresented: $showingSendZEC) {
+        .sheet(isPresented: $showingSendZEC, onDismiss: {
+            ReviewManager.shared.requestPendingReviewIfNeeded()
+        }) {
             SendZECView()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)

@@ -8,10 +8,24 @@ final class ReviewManager {
     private let lastRequestKey  = "reviewManager.lastRequestDate"
     private let minimumInterval: TimeInterval = 3 * 24 * 60 * 60  // 3 days
 
+    private var isRequestPending = false
+
     private init() {
         if UserDefaults.standard.object(forKey: firstLaunchKey) == nil {
             UserDefaults.standard.set(Date(), forKey: firstLaunchKey)
         }
+    }
+
+    /// Defers the review prompt until `requestPendingReviewIfNeeded()` is called,
+    /// e.g. after a confirmation sheet presented on top of the trigger screen is dismissed.
+    func scheduleReviewRequest() {
+        isRequestPending = true
+    }
+
+    func requestPendingReviewIfNeeded() {
+        guard isRequestPending else { return }
+        isRequestPending = false
+        requestReviewIfEligible()
     }
 
     func requestReviewIfEligible() {

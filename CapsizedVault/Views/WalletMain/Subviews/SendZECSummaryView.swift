@@ -203,7 +203,7 @@ struct SendZECSummaryView: View {
             }
             switch sendResult {
             case .success:
-                ReviewManager.shared.requestReviewIfEligible()
+                ReviewManager.shared.scheduleReviewRequest()
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 showSuccessSheet = true
             case .failure(let error):
