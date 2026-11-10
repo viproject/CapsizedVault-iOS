@@ -424,33 +424,6 @@ struct SendXMRView: View {
                 isEnterAmountFocused = true
             }
             
-            // MARK: - Memo
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Memo")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.dsTextTertiary)
-                    Spacer()
-                    Text("\(memo.count)/100")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.dsTextTertiary)
-                }
-                TextField("", text: $memo)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 14)
-                    .frame(height: 44)
-                    .background(Color.dsSurface2)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(Color.dsBorder, lineWidth: 1)
-                    )
-                    .onChange(of: memo) { _ in
-                        if memo.count > 100 { memo = String(memo.prefix(100)) }
-                    }
-            }
-            .padding(.vertical, 16)
-
             if !sendAll && amountDouble > 0 && amountDouble + estimatedFeeDouble > availableBalance {
                 Text("Insufficient balance to cover amount + fee")
                     .font(.system(size: 12, weight: .semibold))
@@ -564,6 +537,35 @@ struct SendXMRView: View {
                         }
                     }
                 }
+            }
+            .padding(.vertical, 16)
+
+            Divider()
+
+            // MARK: - Memo
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Memo")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.dsTextTertiary)
+                    Spacer()
+                    Text("\(memo.count)/100")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.dsTextTertiary)
+                }
+                TextField("", text: $memo)
+                    .font(.system(size: 14))
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .background(Color.dsSurface2)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.dsBorder, lineWidth: 1)
+                    )
+                    .onChange(of: memo) { _ in
+                        if memo.count > 100 { memo = String(memo.prefix(100)) }
+                    }
             }
             .padding(.vertical, 16)
 

@@ -434,44 +434,6 @@ struct SendZECView: View {
                 isEnterAmountFocused = true
             }
 
-            if !addressIsTransparent {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Memo")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Color.dsTextTertiary)
-                        Spacer()
-                        Text("\(memo.utf8.count)/512")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.dsTextTertiary)
-                    }
-                    TextField("", text: $memo)
-                        .focused($isMemoFocused)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 14)
-                        .frame(height: 44)
-                        .background(Color.dsSurface2)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color.dsBorder, lineWidth: 1)
-                        )
-                        .onChange(of: memo) { _ in
-                            while memo.utf8.count > 512 { memo = String(memo.dropLast()) }
-                        }
-                        .toolbar {
-                            ToolbarItemGroup(placement: .keyboard) {
-                                Spacer()
-                                Button("Done") {
-                                    isMemoFocused = false
-                                }
-                            }
-                        }
-                }
-                .padding(.vertical, 16)
-            }
-
             if isPreparingNetworkFiles {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -555,6 +517,46 @@ struct SendZECView: View {
                 Spacer()
             }
             .padding(.vertical, 16)
+
+            if !addressIsTransparent {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Memo")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.dsTextTertiary)
+                        Spacer()
+                        Text("\(memo.utf8.count)/512")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.dsTextTertiary)
+                    }
+                    TextField("", text: $memo)
+                        .focused($isMemoFocused)
+                        .autocorrectionDisabled()
+                        .font(.system(size: 14))
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(Color.dsSurface2)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(Color.dsBorder, lineWidth: 1)
+                        )
+                        .onChange(of: memo) { _ in
+                            while memo.utf8.count > 512 { memo = String(memo.dropLast()) }
+                        }
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    isMemoFocused = false
+                                }
+                            }
+                        }
+                }
+                .padding(.vertical, 16)
+            }
         }
     }
 
