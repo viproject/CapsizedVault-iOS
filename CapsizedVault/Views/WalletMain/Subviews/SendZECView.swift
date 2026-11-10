@@ -15,6 +15,9 @@ struct SendZECView: View {
         case summary
     }
 
+    /// Duration of the push transition between the address and amount steps.
+    private let stepTransitionDuration: TimeInterval = 0.3
+
     @Environment(\.dismiss) private var dismiss
 
     @StateObject private var walletManager = WalletManager.shared
@@ -76,56 +79,61 @@ struct SendZECView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
 
-            switch viewState {
-            case .enterAddress:
-                VStack(spacing: 0) {
-                    enterAddressSection
-                        .padding(.horizontal, 20)
-                        .padding(.top, 12)
-                    Spacer()
-                    Button(action: nextAction) {
-                        Text("Next")
-                    }
-                    .buttonStyle(.dsPrimary)
-                    .disabled(!isNextEnabled)
-                    .opacity(isNextEnabled ? 1 : 0.5)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 28)
-                }
-
-            case .enterAmount:
-                ScrollView {
+            ZStack {
+                switch viewState {
+                case .enterAddress:
                     VStack(spacing: 0) {
                         enterAddressSection
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
-                        enterAmountSection
-                            .padding(.horizontal, 20)
-                        HStack(spacing: 12) {
-                            Button(action: backAction) {
-                                Text("Back")
-                            }
-                            .buttonStyle(.dsSecondary)
-
-                            Button(action: nextAction) {
-                                Text("Next")
-                            }
-                            .buttonStyle(.dsPrimary)
-                            .disabled(!isNextEnabled)
-                            .opacity(isNextEnabled ? 1 : 0.5)
+                        Spacer()
+                        Button(action: nextAction) {
+                            Text("Next")
                         }
+                        .buttonStyle(.dsPrimary)
+                        .disabled(!isNextEnabled)
+                        .opacity(isNextEnabled ? 1 : 0.5)
                         .padding(.horizontal, 20)
-                        .padding(.top, 16)
                         .padding(.bottom, 28)
-                        Color.clear.frame(height: 300)
                     }
-                    .instantScrollViewTouches()
-                }
-                .scrollDismissesKeyboard(.interactively)
+                    .transition(.move(edge: .leading))
 
-            case .summary:
-                summaryScreen
+                case .enterAmount:
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            enterAddressSection
+                                .padding(.horizontal, 20)
+                                .padding(.top, 12)
+                            enterAmountSection
+                                .padding(.horizontal, 20)
+                            HStack(spacing: 12) {
+                                Button(action: backAction) {
+                                    Text("Back")
+                                }
+                                .buttonStyle(.dsSecondary)
+
+                                Button(action: nextAction) {
+                                    Text("Next")
+                                }
+                                .buttonStyle(.dsPrimary)
+                                .disabled(!isNextEnabled)
+                                .opacity(isNextEnabled ? 1 : 0.5)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 16)
+                            .padding(.bottom, 28)
+                            Color.clear.frame(height: 300)
+                        }
+                        .instantScrollViewTouches()
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .transition(.move(edge: .trailing))
+
+                case .summary:
+                    summaryScreen
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .interactiveDismissDisabled()
         .task {
@@ -532,8 +540,10 @@ struct SendZECView: View {
         switch viewState {
         case .enterAddress:
             if !receiverAddress.isEmpty && isValidAddress {
-                viewState = .enterAmount
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeInOut(duration: stepTransitionDuration)) {
+                    viewState = .enterAmount
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + stepTransitionDuration + 0.05) {
                     isEnterAmountFocused = true
                 }
             }
@@ -549,7 +559,9 @@ struct SendZECView: View {
         case .enterAddress:
             break
         case .enterAmount:
-            viewState = .enterAddress
+            withAnimation(.easeInOut(duration: stepTransitionDuration)) {
+                viewState = .enterAddress
+            }
         case .summary:
             viewState = .enterAmount
         }
