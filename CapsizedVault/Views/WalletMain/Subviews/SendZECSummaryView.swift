@@ -8,6 +8,7 @@ struct SendZECSummaryView: View {
     let estimatedFee: CoinAmount
     let zecToUsd: Double
     let memo: String?
+    let sendAll: Bool
 
     let backAction: () -> Void
 
@@ -194,7 +195,12 @@ struct SendZECSummaryView: View {
 
         isSending = true
         Task {
-            let sendResult = await wallet.send(to: receiverAddress, amount: amount, memo: memo)
+            let sendResult: Result<Bool, WalletError>
+            if sendAll {
+                sendResult = await wallet.sendMax(to: receiverAddress, memo: memo, expectedAmount: amount, expectedFee: estimatedFee)
+            } else {
+                sendResult = await wallet.send(to: receiverAddress, amount: amount, memo: memo)
+            }
             switch sendResult {
             case .success:
                 ReviewManager.shared.requestReviewIfEligible()

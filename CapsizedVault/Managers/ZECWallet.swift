@@ -355,6 +355,42 @@ class ZECWallet: BaseWallet {
         }
     }
 
+    /// ZEC-only "Max" support for `SendZECView` — not part of `BaseWallet`, since XMR already
+    /// has its own `sendAll` path through `XMRWallet.send(to:amount:sendAll:priority:memo:)`.
+    func estimateSendMax(to address: String) async -> Result<(amount: CoinAmount, fee: CoinAmount), WalletError> {
+        guard let engine, let accountID = accountIDs[Int(activeAccountIndex)] else { return .failure(.walletFilesMissing) }
+        do {
+            let result = try await engine.estimateSendMax(account: accountID, to: address)
+            return .success((CoinAmount(atomic: result.amount, coin: .zcash), CoinAmount(atomic: result.fee, coin: .zcash)))
+        } catch {
+            return .failure(ZECWallet.mapSendError(error))
+        }
+    }
+
+    /// `expectedAmount`/`expectedFee` are whatever `estimateSendMax` last reported to the
+    /// caller — the engine refuses to submit if the account's balance moved since then and the
+    /// proposal it rebuilds no longer matches. See `ZcashEngine.sendMax`'s doc comment.
+    func sendMax(to address: String, memo: String?, expectedAmount: CoinAmount, expectedFee: CoinAmount) async -> Result<Bool, WalletError> {
+        guard !isWatchOnly else { return .failure(.unknown("View-only wallets can't send.")) }
+        guard let engine, let accountID = accountIDs[Int(activeAccountIndex)] else { return .failure(.walletFilesMissing) }
+        guard let seedBytes = ZECWallet.resolveSeedBytes(for: walletId) else { return .failure(.walletFilesMissing) }
+
+        do {
+            try await engine.sendMax(
+                account: accountID,
+                to: address,
+                memo: memo,
+                expectedAmount: expectedAmount.atomic,
+                expectedFee: expectedFee.atomic,
+                seed: seedBytes
+            )
+            await refreshBalance()
+            return .success(true)
+        } catch {
+            return .failure(ZECWallet.mapSendError(error))
+        }
+    }
+
     override func isValidAddress(_ address: String) -> Bool {
         addressKind(address) != .invalid
     }

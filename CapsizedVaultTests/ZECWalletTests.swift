@@ -66,6 +66,18 @@ private final class FakeZcashEngine: ZcashEngine {
     private(set) var lastSendSeed: [UInt8]?
     private(set) var lastSendAccount: ZcashAccountID?
     var sendResult: Result<Void, Error> = .success(())
+    private(set) var estimateSendMaxCount = 0
+    private(set) var lastEstimateSendMaxAddress: String?
+    private(set) var lastEstimateSendMaxAccount: ZcashAccountID?
+    var estimateSendMaxResult: Result<(amount: Int64, fee: Int64), Error> = .success((amount: 90_000_000, fee: 1_000))
+    private(set) var sendMaxCount = 0
+    private(set) var lastSendMaxAddress: String?
+    private(set) var lastSendMaxMemo: String?
+    private(set) var lastSendMaxExpectedAmount: Int64?
+    private(set) var lastSendMaxExpectedFee: Int64?
+    private(set) var lastSendMaxSeed: [UInt8]?
+    private(set) var lastSendMaxAccount: ZcashAccountID?
+    var sendMaxResult: Result<Void, Error> = .success(())
     private(set) var ensureSaplingParamsDownloadedCount = 0
     var ensureSaplingParamsDownloadedError: Error?
 
@@ -197,6 +209,29 @@ private final class FakeZcashEngine: ZcashEngine {
         lastSendSeed = seed
         lastSendAccount = account
         if case .failure(let error) = sendResult {
+            throw error
+        }
+    }
+
+    func estimateSendMax(account: ZcashAccountID, to address: String) async throws -> (amount: Int64, fee: Int64) {
+        estimateSendMaxCount += 1
+        lastEstimateSendMaxAddress = address
+        lastEstimateSendMaxAccount = account
+        switch estimateSendMaxResult {
+        case .success(let result): return result
+        case .failure(let error): throw error
+        }
+    }
+
+    func sendMax(account: ZcashAccountID, to address: String, memo: String?, expectedAmount: Int64, expectedFee: Int64, seed: [UInt8]) async throws {
+        sendMaxCount += 1
+        lastSendMaxAddress = address
+        lastSendMaxMemo = memo
+        lastSendMaxExpectedAmount = expectedAmount
+        lastSendMaxExpectedFee = expectedFee
+        lastSendMaxSeed = seed
+        lastSendMaxAccount = account
+        if case .failure(let error) = sendMaxResult {
             throw error
         }
     }
@@ -632,6 +667,118 @@ struct ZECWalletTests {
         let result = await wallet.send(to: "u1recipient", amount: CoinAmount(atomic: 10_000_000, coin: .zcash), memo: nil)
 
         #expect(engine.sendCount == 0)
+        if case .failure = result {
+            // expected
+        } else {
+            Issue.record("Expected failure")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+        KeychainHelper.deletePendingZcashViewingKey(for: walletId)
+    }
+
+    // MARK: - Send Max
+
+    @Test func estimateSendMaxReturnsAmountAndFeeAsCoinAmount() async throws {
+        let engine = FakeZcashEngine()
+        engine.estimateSendMaxResult = .success((amount: 39_999_000, fee: 1_000))
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.estimateSendMax(to: "u1recipient")
+
+        #expect(engine.estimateSendMaxCount == 1)
+        #expect(engine.lastEstimateSendMaxAddress == "u1recipient")
+        if case .success(let maxResult) = result {
+            #expect(maxResult.amount == CoinAmount(atomic: 39_999_000, coin: .zcash))
+            #expect(maxResult.fee == CoinAmount(atomic: 1_000, coin: .zcash))
+        } else {
+            Issue.record("Expected success")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func sendMaxPassesSeedMemoAndExpectedAmountThenRefreshesBalance() async throws {
+        let engine = FakeZcashEngine()
+        let expectedBalance = WalletAccountBalance(
+            index: 0, label: "Account 1",
+            total: CoinAmount(atomic: 0, coin: .zcash),
+            spendable: CoinAmount(atomic: 0, coin: .zcash),
+            pending: CoinAmount(atomic: 0, coin: .zcash),
+            transparent: CoinAmount(atomic: 0, coin: .zcash)
+        )
+        engine.balance = ZcashEngineBalance(total: 0, spendable: 0, pending: 0, transparent: 0)
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.sendMax(
+            to: "u1recipient",
+            memo: "hi",
+            expectedAmount: CoinAmount(atomic: 39_999_000, coin: .zcash),
+            expectedFee: CoinAmount(atomic: 1_000, coin: .zcash)
+        )
+
+        #expect(engine.sendMaxCount == 1)
+        #expect(engine.lastSendMaxAddress == "u1recipient")
+        #expect(engine.lastSendMaxMemo == "hi")
+        #expect(engine.lastSendMaxExpectedAmount == 39_999_000)
+        #expect(engine.lastSendMaxExpectedFee == 1_000)
+        #expect(engine.lastSendMaxSeed?.isEmpty == false)
+        if case .success(let sent) = result {
+            #expect(sent == true)
+        } else {
+            Issue.record("Expected success")
+        }
+        #expect(wallet.cachedTotalUnlocked == expectedBalance.total)
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func sendMaxPropagatesBalanceChangedErrorUnchanged() async throws {
+        let engine = FakeZcashEngine()
+        engine.sendMaxResult = .failure(ZcashEngineError.sendMaxAmountChanged)
+        let wallet = ZECWallet(mnemonic: try testMnemonic(), birthday: nil, title: "Test", engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.sendMax(
+            to: "u1recipient",
+            memo: nil,
+            expectedAmount: CoinAmount(atomic: 39_999_000, coin: .zcash),
+            expectedFee: CoinAmount(atomic: 1_000, coin: .zcash)
+        )
+
+        if case .failure(let error) = result {
+            #expect(error == .unknown(ZcashEngineError.sendMaxAmountChanged.errorDescription ?? ""))
+        } else {
+            Issue.record("Expected failure")
+        }
+
+        wallet.deactivate()
+        try await waitUntil { engine.stopCount == 1 }
+    }
+
+    @Test func sendMaxOnViewOnlyWalletFailsWithoutCallingEngine() async throws {
+        let engine = FakeZcashEngine()
+        let walletId = UUID().uuidString
+        let wallet = ZECWallet(viewingKey: "uview1sendmaxtest", birthday: nil, title: "Test VO", newWalletId: walletId, engineFactory: { _ in engine })
+        wallet.activate()
+        try await waitUntil { engine.startCount == 1 }
+
+        let result = await wallet.sendMax(
+            to: "u1recipient",
+            memo: nil,
+            expectedAmount: CoinAmount(atomic: 39_999_000, coin: .zcash),
+            expectedFee: CoinAmount(atomic: 1_000, coin: .zcash)
+        )
+
+        #expect(engine.sendMaxCount == 0)
         if case .failure = result {
             // expected
         } else {

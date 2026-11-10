@@ -28,6 +28,7 @@ struct SendZECView: View {
     @State private var amountString = ""
     @State private var memo = ""
     @State private var isPreparingNetworkFiles = false
+    @State private var sendAll = false
 
     @FocusState private var isEnterAddressFocused: Bool
     @State private var isEnterAmountFocused = false
@@ -142,7 +143,7 @@ struct SendZECView: View {
             _ = await wallet.ensureSaplingParamsDownloaded()
             isPreparingNetworkFiles = false
         }
-        .task(id: FeeEstimateKey(address: receiverAddress, amount: amountString)) {
+        .task(id: FeeEstimateKey(address: receiverAddress, amount: sendAll ? "" : amountString, sendAll: sendAll)) {
             // Debounce: rapid edits cancel the pending sleep before it fires another proposal.
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
@@ -344,18 +345,39 @@ struct SendZECView: View {
 
     /// Updated by the debounced `.task(id:)` below.
     @State private var estimatedFee: CoinAmount = .zero(.zcash)
+    /// Set when `sendAll` and the engine can't build a max proposal (e.g. balance too small to
+    /// cover its own fee) — shown instead of the "Insufficient balance" line.
+    @State private var sendMaxError: String?
 
     private struct FeeEstimateKey: Equatable {
         let address: String
+        /// Empty while `sendAll` is on, so writing the computed max back into `amountString`
+        /// doesn't retrigger this same debounced task.
         let amount: String
+        let sendAll: Bool
     }
 
     private func refreshEstimatedFee() async {
         guard !receiverAddress.isEmpty, isValidAddress, let wallet else {
             estimatedFee = .zero(.zcash)
+            sendMaxError = nil
             return
         }
-        let result = await wallet.estimateFee(to: receiverAddress.trimmingCharacters(in: .whitespacesAndNewlines), amount: amount)
+        let trimmedAddress = receiverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if sendAll {
+            let result = await wallet.estimateSendMax(to: trimmedAddress)
+            switch result {
+            case .success(let maxResult):
+                estimatedFee = maxResult.fee
+                amountString = maxResult.amount.formatted(style: .full)
+                sendMaxError = nil
+            case .failure(let error):
+                sendMaxError = error.userMessage
+            }
+            return
+        }
+        sendMaxError = nil
+        let result = await wallet.estimateFee(to: trimmedAddress, amount: amount)
         if case .success(let fee) = result {
             estimatedFee = fee
         }
@@ -385,6 +407,9 @@ struct SendZECView: View {
                         textColor: UIColor(amount.isZero ? Color.dsTextTertiary : Color.dsTextPrimary),
                         onDone: { isEnterAmountFocused = false }
                     )
+                    .onChange(of: amountString) { _ in
+                        if isEnterAmountFocused { sendAll = false }
+                    }
                     Text("ZEC")
                         .font(.title2)
                         .fontWeight(.semibold)
@@ -447,7 +472,13 @@ struct SendZECView: View {
                 .padding(.bottom, 12)
             }
 
-            if !amount.isZero && amount.atomic + estimatedFee.atomic > availableBalance.atomic {
+            if sendAll, let sendMaxError {
+                Text(sendMaxError)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.dsDanger)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 12)
+            } else if !sendAll && !amount.isZero && amount.atomic + estimatedFee.atomic > availableBalance.atomic {
                 Text("Insufficient balance to cover amount + fee")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.dsDanger)
@@ -467,9 +498,33 @@ struct SendZECView: View {
                         .fontWeight(.bold)
                         .foregroundStyle(Color.dsTextPrimary)
                 }
+
                 Spacer()
+
+                Button {
+                    sendAll = true
+                    isEnterAmountFocused = false
+                } label: {
+                    Text("Max")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.dsJadeSoft)
+                        .foregroundStyle(Color.dsAccent)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.dsSoft)
             }
             .padding(.vertical, 16)
+
+            if sendAll {
+                Text("Max sends your full balance minus the network fee.")
+                    .font(.caption)
+                    .foregroundStyle(Color.dsTextTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 12)
+            }
 
             Divider()
 
@@ -499,7 +554,8 @@ struct SendZECView: View {
             availableBalance: availableBalance,
             estimatedFee: estimatedFee,
             zecToUsd: zecToUsd,
-            memo: addressIsTransparent ? nil : (memo.isEmpty ? nil : memo)
+            memo: addressIsTransparent ? nil : (memo.isEmpty ? nil : memo),
+            sendAll: sendAll
         ) {
             backAction()
         }
@@ -509,6 +565,7 @@ struct SendZECView: View {
         if viewState == .enterAddress {
             return !receiverAddress.isEmpty && isValidAddress
         } else if viewState == .enterAmount {
+            if sendAll { return !amount.isZero && sendMaxError == nil }
             return !amount.isZero && amount.atomic + estimatedFee.atomic <= availableBalance.atomic
         }
         return true
@@ -529,7 +586,10 @@ struct SendZECView: View {
     private func applyScannedOrPasted(_ value: String) {
         if let request = ZIP321.parse(value) {
             receiverAddress = request.address
-            if let requestedAmount = request.amount { amountString = requestedAmount }
+            if let requestedAmount = request.amount {
+                amountString = requestedAmount
+                sendAll = false
+            }
             if let requestedMemo = request.memo { memo = requestedMemo }
         } else {
             receiverAddress = value.trimmingCharacters(in: .whitespacesAndNewlines)

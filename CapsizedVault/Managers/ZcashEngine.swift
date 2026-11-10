@@ -122,6 +122,19 @@ protocol ZcashEngine: AnyObject {
     /// Builds a fresh transfer proposal and creates + submits it. `seed` derives the spending
     /// key, the same way `shieldFunds(account:seed:memo:)` already does.
     func send(account: ZcashAccountID, to address: String, amount: Int64, memo: String?, seed: [UInt8]) async throws
+    /// Builds a "spend everything spendable" proposal and returns the amount the recipient
+    /// would actually receive (the proposal's total spend value minus its own fee) alongside
+    /// that fee, in zatoshi — without creating or submitting anything. Safe to call repeatedly,
+    /// same as `estimateFee`.
+    func estimateSendMax(account: ZcashAccountID, to address: String) async throws -> (amount: Int64, fee: Int64)
+    /// Builds a fresh "spend everything spendable" proposal and creates + submits it, the same
+    /// way `send(account:to:amount:memo:seed:)` does for a fixed amount. Because the proposal is
+    /// rebuilt from the account's balance at call time, it can differ from whatever
+    /// `estimateSendMax` last reported if the spendable balance changed in between — `expectedAmount`/
+    /// `expectedFee` are the values the caller last showed the user, and this throws
+    /// `ZcashEngineError.sendMaxAmountChanged` instead of submitting anything if the freshly built
+    /// proposal's amount/fee don't match them exactly.
+    func sendMax(account: ZcashAccountID, to address: String, memo: String?, expectedAmount: Int64, expectedFee: Int64, seed: [UInt8]) async throws
     /// Proactively downloads the ~50MB Sapling parameter files this account needs for any
     /// shielded spend, if they aren't already present. `send`/`shieldFunds` already trigger
     /// this download automatically the first time it's actually needed, so this call is only
@@ -134,6 +147,9 @@ enum ZcashEngineError: LocalizedError {
     case noAccount
     case transactionSubmissionFailed(String)
     case transactionNotFound
+    /// Thrown by `sendMax` when the proposal it rebuilds at submit time doesn't match the
+    /// `expectedAmount`/`expectedFee` the caller passed in — see that method's doc comment.
+    case sendMaxAmountChanged
 
     var errorDescription: String? {
         switch self {
@@ -145,6 +161,8 @@ enum ZcashEngineError: LocalizedError {
             return description
         case .transactionNotFound:
             return "Transaction not found."
+        case .sendMaxAmountChanged:
+            return "Your balance changed. Go back and review the amount."
         }
     }
 }
@@ -516,6 +534,37 @@ final class SDKZcashEngine: ZcashEngine {
         }
     }
 
+    func estimateSendMax(account: ZcashAccountID, to address: String) async throws -> (amount: Int64, fee: Int64) {
+        guard let uuid = accounts[account] else { throw ZcashEngineError.noAccount }
+        do {
+            let proposal = try await buildSendMaxProposal(accountUUID: uuid, address: address, memo: nil)
+            let fee = proposal.totalFeeRequired().amount
+            let amount = proposal.totalSpendValue().amount - fee
+            return (amount, fee)
+        } catch {
+            throw Self.mapToWalletError(error)
+        }
+    }
+
+    func sendMax(account: ZcashAccountID, to address: String, memo: String?, expectedAmount: Int64, expectedFee: Int64, seed: [UInt8]) async throws {
+        guard let uuid = accounts[account], let hdIndex = hdIndices[account] else { throw ZcashEngineError.noAccount }
+        do {
+            let proposal = try await buildSendMaxProposal(accountUUID: uuid, address: address, memo: memo)
+            let fee = proposal.totalFeeRequired().amount
+            let amount = proposal.totalSpendValue().amount - fee
+            // The proposal is rebuilt from the account's current balance, which may have moved
+            // since `estimateSendMax` last reported it to the caller — refuse to submit rather
+            // than silently sending more or less than the user approved on the summary screen.
+            guard amount == expectedAmount, fee == expectedFee else {
+                throw ZcashEngineError.sendMaxAmountChanged
+            }
+            let usk = try DerivationTool(networkType: network).deriveUnifiedSpendingKey(seed: seed, accountIndex: hdIndex)
+            _ = try await submitProposal(proposal, spendingKey: usk)
+        } catch {
+            throw Self.mapToWalletError(error)
+        }
+    }
+
     /// Records an `AccountUUID` the SDK just handed back (from `listAccounts`,
     /// `importAccount`, or `getAccountsBalances`) under its app-facing id.
     @discardableResult
@@ -539,6 +588,15 @@ final class SDKZcashEngine: ZcashEngine {
         let recipient = try Recipient(address, network: network)
         let memoValue = try memo.map { try Memo(string: $0) }
         return try await synchronizer.proposeTransfer(accountUUID: accountUUID, recipient: recipient, amount: Zatoshi(amount), memo: memoValue)
+    }
+
+    /// Shared by `estimateSendMax` and `sendMax` — draws on shielded funds only (Sapling,
+    /// Orchard, Ironwood); transparent balance is never selected and must be shielded first.
+    /// `.maxSpendable` matches what the "Available" balance already shown to the user counts.
+    private func buildSendMaxProposal(accountUUID: AccountUUID, address: String, memo: String?) async throws -> Proposal {
+        let recipient = try Recipient(address, network: network)
+        let memoValue = try memo.map { try Memo(string: $0) }
+        return try await synchronizer.proposeSendMax(accountUUID: accountUUID, recipient: recipient, memo: memoValue, mode: .maxSpendable)
     }
 
     /// Shared by `shieldFunds` and `send` — both just differ in how they build the `Proposal`.
@@ -581,6 +639,8 @@ final class SDKZcashEngine: ZcashEngine {
             // The generic "Error from rust layer..." description names no cause (e.g. the
             // transparent balance being too small to cover the fee) — surface the real reason.
             return WalletError.unknown("Couldn't shield funds: \(rustError)")
+        case .rustProposeSendMaxTransfer(let rustError):
+            return WalletError.unknown("Couldn't calculate max amount: \(rustError)")
         default:
             return error
         }
