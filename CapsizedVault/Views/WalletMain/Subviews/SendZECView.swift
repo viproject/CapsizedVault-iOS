@@ -31,6 +31,7 @@ struct SendZECView: View {
     @State private var sendAll = false
 
     @FocusState private var isEnterAddressFocused: Bool
+    @FocusState private var isMemoFocused: Bool
     @State private var isEnterAmountFocused = false
     @State private var actionPanelHeight: CGFloat = 0
 
@@ -445,6 +446,8 @@ struct SendZECView: View {
                             .foregroundStyle(Color.dsTextTertiary)
                     }
                     TextField("", text: $memo)
+                        .focused($isMemoFocused)
+                        .autocorrectionDisabled()
                         .font(.system(size: 14))
                         .padding(.horizontal, 14)
                         .frame(height: 44)
@@ -456,6 +459,14 @@ struct SendZECView: View {
                         )
                         .onChange(of: memo) { _ in
                             while memo.utf8.count > 512 { memo = String(memo.dropLast()) }
+                        }
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") {
+                                    isMemoFocused = false
+                                }
+                            }
                         }
                 }
                 .padding(.vertical, 16)
