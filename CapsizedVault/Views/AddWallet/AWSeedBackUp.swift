@@ -167,7 +167,7 @@ struct AWSeedBackUp: View {
                     Button {
                         withAnimation {
                             savedAck.toggle()
-                            if savedAck { backedUp = true }
+                            backedUp = savedAck
                         }
                     } label: {
                         HStack(spacing: 10) {
